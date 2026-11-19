@@ -1,0 +1,16 @@
+{
+  "last_run_utc": "2026-11-19T06:00:00Z",
+  "last_verified_date": "19 Nov 2026",
+  "row_count": 487,
+  "datasets": {
+    "fx_bam_usd": "SUCCESS",
+    "day_ahead_power": "SUCCESS",
+    "macro_imf": "SUCCESS"
+  },
+  "watchdogs": {
+    "NOSBiH_Balanced_Users": "OK",
+    "DERK_Reports": "OK",
+    "FERK_Decisions": "OK"
+  },
+  "changes_applied": 1
+}
