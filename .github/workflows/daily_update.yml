@@ -1,0 +1,51 @@
+name: BiH Energy Daily Auto-Update
+
+on:
+  schedule:
+    # Runs every day at 05:00 UTC (06:00 CET / 07:00 CEST Europe/Sarajevo)
+    - cron: '0 5 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update-bih-master-csv:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Private Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run BiH Daily Updater & Schema Gate
+        id: updater
+        run: |
+          python3 update_bih.py
+
+      - name: Commit & Push Updated CSV, Change Log & Status JSON
+        run: |
+          git config user.name "BiH Energy Auto-Updater"
+          git config user.email "george.michael@elsewdy.com"
+          git add bih_data.csv change_log.csv status.json
+          git diff --staged --quiet || git commit -m "chore(data): daily auto-update $(date -u +'%Y-%m-%d')"
+          git push
+
+      - name: Send Failure Alert Email to George Michael
+        if: failure()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: ${{ secrets.SMTP_SERVER }}
+          server_port: ${{ secrets.SMTP_PORT }}
+          username: ${{ secrets.SMTP_USERNAME }}
+          password: ${{ secrets.SMTP_PASSWORD }}
+          subject: "[ALERT] BiH Energy Master Workbook Daily Auto-Update Failed"
+          to: "george.michael@elsewdy.com"
+          from: "BiH Energy Auto-Updater <george.michael@elsewdy.com>"
+          body: |
+            The daily scheduled update for BiH_Consolidated_Master_Database_Synchronized.xlsm encountered an error or sanity-limit rejection.
+            Repository: ${{ github.repository }}
+            Run URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
