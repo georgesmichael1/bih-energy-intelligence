@@ -1,5 +1,5 @@
 {
-  "last_run_utc": "2026-11-19T06:00:00Z",
+  "last_run_utc": "2026-11-19T14:44:20Z",
   "last_verified_date": "19 Nov 2026",
   "row_count": 487,
   "datasets": {
@@ -7,10 +7,10 @@
     "day_ahead_power": "SUCCESS",
     "macro_imf": "SUCCESS"
   },
+  "changes_applied": 2,
   "watchdogs": {
-    "NOSBiH_Balanced_Users": "OK",
-    "DERK_Reports": "OK",
-    "FERK_Decisions": "OK"
-  },
-  "changes_applied": 1
+    "NOSBiH_Balanced_Users": "OK (sha256:4024bf40df7d)",
+    "DERK_Reports": "SKIPPED (HTTPError)",
+    "FERK_Decisions": "OK (sha256:4bde90bbebc2)"
+  }
 }
