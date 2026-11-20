@@ -2,3 +2,5 @@ Date,Record_ID,Column,Old_Value,New_Value,Source
 2026-11-19,BIH-0487,Primary_Value,,104.50,ENTSOE_SEEPEX_HUPX
 2026-11-19,BIH-0128,Primary_Value,1.6710 (Avg) / 1.7438 (Nov 3 Spot),1.6710 (Avg) / 1.7832 (Nov 19 Spot),ECB/CBBH_FX
 2026-11-19,BIH-0487,Primary_Value,104.50,173.01,ENTSOE_SEEPEX_HUPX
+2026-11-20,BIH-0128,Primary_Value,1.6710 (Avg) / 1.7832 (Nov 19 Spot),1.6710 (Avg) / 1.7793 (Nov 20 Spot),ECB/CBBH_FX
+2026-11-20,BIH-0487,Primary_Value,173.01,199.46,ENTSOE_SEEPEX_HUPX
