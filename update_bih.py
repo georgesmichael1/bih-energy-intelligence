@@ -1,44 +1,69 @@
 #!/usr/bin/env python3
 """
-BiH Energy Workbook — Daily Auto-Updater (update_bih.py)
-========================================================
-Maintains `bih_data.csv`, `change_log.csv`, and `status.json` for
-BiH_Consolidated_Master_Database_Synchronized.xlsm.
+BiH Energy Workbook - Daily Auto-Updater (update_bih.py)  [v2]
+==============================================================
+Maintains `bih_data.csv`, `change_log.csv` and `status.json` for the Excel/VBA
+dashboard.
 
-Architecture & Safety Rules Enforced:
-1. Schema Lock: 30 exact columns, 486 (or 487 with BIH-0487) unique Record_IDs,
-   Domain_Category prefixes 1..10 untouched, row order strictly preserved.
-2. Protected Domains: Never auto-overwrites Domain 3 (RTB Pipeline),
-   Domain 7 (154 Substations), or Domain 9 (Concessions & Permitting).
-3. Sanity Limits:
-   - FX daily move > 3.0% -> REJECT & FLAG
-   - Tariff change > 25.0% -> REJECT & FLAG
-   - Day-ahead power spot < -100 or > 1000 EUR/MWh -> REJECT & FLAG
-   - Non-numeric / blank primary value -> REJECT & FLAG
-4. Official Sources Priority:
-   - FX: ECB Data Portal API (D.USD.EUR.SP00.A) & CBBH Fixed Currency Board Peg (1.95583 BAM/EUR)
-   - Day-Ahead Spot (BIH-0487): ENTSO-E / Energy-Charts API (SEEPEX RS / HUPX HU)
-   - Macro GDP & CPI: IMF DataMapper API (NGDPD, PCPIPCH) & World Bank API (NY.GDP.MKTP.CD, FP.CPI.TOTL)
-   - Regulatory Document Watch (Watchdog): NOSBiH, DERK/SERC, FERK, RERS
+What changed vs v1
+------------------
+* Official sources only. Every download is checked against ALLOWED_HOSTS and
+  refused otherwise. Frankfurter (.dev) was removed.
+* FX: the spot label now uses the ECB observation date (not "today", which was
+  wrong on weekends) and the 2026 YTD average is now really recomputed from the
+  ECB daily series instead of staying frozen.
+* IMF check tries the current DataMapper API (v2) first, and a failure is now a
+  WARN (non-critical) instead of a red run, because it only matters twice a year
+  (IMF WEO is published in April and October).
+* status.json dataset values are: SUCCESS | WARN: ... | FAILED: ...
+  The GitHub workflow turns the run red only on FAILED.
+
+Things the Excel/VBA code depends on (DO NOT CHANGE)
+----------------------------------------------------
+* 30 columns, exact header order, 486/487 rows, unique Record_IDs.
+* BIH-0128 Primary_Value format: "1.6710 (Avg) / 1.7796 (Nov 21 Spot)".
+* BIH-0487 Primary_Value is a plain number.
+* status.json key "last_verified_date".
+
+Protected domains (3, 7, 9) are never overwritten.
 """
 
 import csv
 import datetime
 import hashlib
+import io
 import json
 import os
 import re
+import statistics
 import sys
-import urllib.request
 import urllib.error
-from typing import Dict, Any, List, Tuple, Optional
+import urllib.parse
+import urllib.request
+from typing import Any, Dict, List, Optional, Tuple
 
 CSV_PATH = os.environ.get("BIH_CSV_PATH", "bih_data.csv")
 CHANGELOG_PATH = os.environ.get("BIH_CHANGELOG_PATH", "change_log.csv")
 STATUS_PATH = os.environ.get("BIH_STATUS_PATH", "status.json")
 CACHE_DIR = os.environ.get("BIH_CACHE_DIR", "raw_cache")
 
-BAM_PER_EUR_PEG = 1.95583
+BAM_PER_EUR_PEG = 1.95583  # CBBH currency board peg (fixed by law)
+
+# Only these hosts may be contacted. Add a host here only if it is an official
+# / national / internationally recognised source.
+ALLOWED_HOSTS = {
+    "data-api.ecb.europa.eu",   # European Central Bank - FX reference rates
+    "www.ecb.europa.eu",        # ECB - daily reference rate file (fallback)
+    "www.imf.org",              # International Monetary Fund - DataMapper
+    "api.worldbank.org",        # World Bank
+    "www.cbbh.ba",              # Central Bank of BiH
+    "www.nosbih.ba",            # NOSBiH (grid operator) - watchdog only
+    "www.derk.ba",              # DERK (state regulator) - watchdog only
+    "www.ferk.ba",              # FERK (FBiH regulator) - watchdog only
+    # TEMPORARY - Fraunhofer ISE Energy-Charts, used for BIH-0487 only.
+    # To be replaced by an official power-exchange / ENTSO-E source.
+    "api.energy-charts.info",
+}
 
 EXPECTED_HEADERS = [
     "Record_ID", "Source_Workbook", "Source_Sheet", "Domain_Category",
@@ -50,14 +75,22 @@ EXPECTED_HEADERS = [
     "Technical_Commercial_Notes_Details", "Verification_Status_Source_URL",
     "OP_Region_4", "Substation_Base_MW", "Substation_MVA", "Substation_Queued_MW",
     "Substation_PV_Yield", "Aggregator_Bought_GWh", "Aggregator_Sold_Wholesale_GWh",
-    "Aggregator_Retail_GWh", "EndUser_Tariff_EUR_MWh", "Household_Tariff_EUR_MWh"
+    "Aggregator_Retail_GWh", "EndUser_Tariff_EUR_MWh", "Household_Tariff_EUR_MWh",
 ]
 
 PROTECTED_DOMAIN_PREFIXES = ("3. ", "7. ", "9. ")
 
 
+class NonCritical(Exception):
+    """Raised for datasets whose failure must not turn the daily run red."""
+
+
+def now_utc() -> datetime.datetime:
+    return datetime.datetime.now(datetime.timezone.utc)
+
+
 def lead_num(val: Any, default: Optional[float] = None) -> Optional[float]:
-    """Extract leading float exactly as VBA LeadNum() does."""
+    """Extract leading float like the VBA LeadNum() does."""
     if val is None:
         return default
     s = str(val).strip().replace("$", "").replace(",", "")
@@ -71,7 +104,6 @@ def lead_num(val: Any, default: Optional[float] = None) -> Optional[float]:
 
 
 def validate_schema(rows: List[Dict[str, str]], fieldnames: List[str]) -> Tuple[bool, str]:
-    """Verify exact 30 headers, row count (486 or 487), unique Record_IDs, and Domain prefixes 1..10."""
     if list(fieldnames) != EXPECTED_HEADERS:
         return False, f"Header mismatch! Expected {len(EXPECTED_HEADERS)} columns, got {len(fieldnames)}."
     if len(rows) not in (486, 487):
@@ -87,98 +119,127 @@ def validate_schema(rows: List[Dict[str, str]], fieldnames: List[str]) -> Tuple[
     return True, "OK"
 
 
-def http_get_text(url: str, timeout: int = 15) -> str:
-    """Download URL with polite User-Agent and raw file cache."""
+def http_get_text(url: str, timeout: int = 20, retries: int = 2) -> str:
+    """Download from an allow-listed host only, with a small retry and a cache copy."""
+    host = urllib.parse.urlparse(url).hostname or ""
+    if host not in ALLOWED_HOSTS:
+        raise ValueError(f"Blocked: '{host}' is not an allow-listed official source")
     os.makedirs(CACHE_DIR, exist_ok=True)
     req = urllib.request.Request(
         url,
-        headers={"User-Agent": "BiH-Energy-Master-Updater/1.0 (george.michael@elsewedy.com)"}
+        headers={"User-Agent": "BiH-Energy-Master-Updater/2.0 (george.michael@elsewedy.com)"},
     )
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        data = resp.read().decode("utf-8", errors="replace")
-    ts = datetime.datetime.utcnow().strftime("%Y%m%d")
+    last_err: Optional[Exception] = None
+    for _ in range(retries + 1):
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                data = resp.read().decode("utf-8", errors="replace")
+            break
+        except Exception as e:  # network / HTTP error -> retry
+            last_err = e
+    else:
+        raise last_err  # type: ignore[misc]
+    ts = now_utc().strftime("%Y%m%d")
     h = hashlib.md5(url.encode("utf-8")).hexdigest()[:10]
-    cache_file = os.path.join(CACHE_DIR, f"{ts}_{h}.txt")
-    with open(cache_file, "w", encoding="utf-8") as f:
+    with open(os.path.join(CACHE_DIR, f"{ts}_{h}.txt"), "w", encoding="utf-8") as f:
         f.write(data)
     return data
 
 
 # ==============================================================================
-# TIER 1 (DAILY): FX BAM/USD (ECB Reference Rate + CBBH 1.95583 Currency Board)
+# DAILY: FX BAM/USD  (ECB reference rate + CBBH peg 1.95583)  -> BIH-0128
 # ==============================================================================
-def fetch_fx(existing_rows: Dict[str, Dict[str, str]], test_override_spot: Optional[float] = None) -> Dict[str, Dict[str, str]]:
-    """
-    Fetches latest EUR/USD from ECB Data Portal (or Frankfurter ECB mirror)
-    and computes BAM/USD = 1.95583 / EURUSD. Updates BIH-0128 and BIH-0095.
-    """
-    today_dt = datetime.date.today()
-    today_short = today_dt.strftime("%b %-d") if os.name != "nt" else today_dt.strftime("%b %d").replace(" 0", " ")
-    today_ver = today_dt.strftime("%d.%m.%Y")
+ECB_FX_URL = "https://data-api.ecb.europa.eu/service/data/EXR/D.USD.EUR.SP00.A"
+ECB_DAILY_XML = "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml"
 
-    cur_row = existing_rows.get("BIH-0128", {})
-    cur_val_str = cur_row.get("Primary_Value", "1.6710 (Avg) / 1.7438 (Nov 3 Spot)")
-    cur_ytd_avg = lead_num(cur_val_str, 1.6710) or 1.6710
 
-    # Parse current spot from text if present
-    m_spot = re.search(r"/\s*(\d+\.\d+)\s*\(", cur_val_str)
+def fetch_ecb_usd_series(start_date: str) -> List[Tuple[datetime.date, float]]:
+    """Daily EUR/USD observations from the ECB Data Portal (oldest first)."""
+    text = http_get_text(f"{ECB_FX_URL}?startPeriod={start_date}&format=csvdata")
+    out: List[Tuple[datetime.date, float]] = []
+    for row in csv.DictReader(io.StringIO(text)):
+        try:
+            d = datetime.date.fromisoformat(row["TIME_PERIOD"])
+            v = float(row["OBS_VALUE"])
+        except (KeyError, ValueError):
+            continue
+        if v > 0:
+            out.append((d, v))
+    out.sort()
+    if not out:
+        raise ValueError("ECB Data Portal returned no USD observations")
+    return out
+
+
+def fetch_ecb_latest_usd_xml() -> List[Tuple[datetime.date, float]]:
+    """Fallback: ECB's own daily reference-rate file (latest day only)."""
+    xml = http_get_text(ECB_DAILY_XML)
+    m_date = re.search(r"<Cube\s+time=['\"](\d{4}-\d{2}-\d{2})['\"]", xml)
+    m_rate = re.search(r"currency=['\"]USD['\"]\s+rate=['\"]([\d.]+)['\"]", xml)
+    if not (m_date and m_rate):
+        raise ValueError("Could not parse ECB daily reference-rate file")
+    return [(datetime.date.fromisoformat(m_date.group(1)), float(m_rate.group(1)))]
+
+
+def fetch_fx(
+    existing_rows: Dict[str, Dict[str, str]],
+    test_override_spot: Optional[float] = None,
+) -> Dict[str, Dict[str, str]]:
+    today = now_utc().date()
+    cur_val = existing_rows.get("BIH-0128", {}).get(
+        "Primary_Value", "1.6710 (Avg) / 1.7438 (Nov 3 Spot)"
+    )
+    cur_avg = lead_num(cur_val, 1.6710) or 1.6710
+    m_spot = re.search(r"/\s*(\d+\.\d+)\s*\(", cur_val)
     old_spot = float(m_spot.group(1)) if m_spot else 1.7438
 
     if test_override_spot is not None:
+        obs_date = today
         new_spot = round(float(test_override_spot), 4)
         eur_usd = round(BAM_PER_EUR_PEG / new_spot, 4)
-        new_ytd_avg = round((cur_ytd_avg * 210 + new_spot) / 211, 4)
-        src_url = "https://data-api.ecb.europa.eu/service/data/EXR/D.USD.EUR.SP00.A?lastNObservations=1&format=csvdata"
+        new_avg = cur_avg
+        src_url = ECB_FX_URL
     else:
-        ecb_url = "https://data-api.ecb.europa.eu/service/data/EXR/D.USD.EUR.SP00.A?lastNObservations=5&format=csvdata"
         try:
-            csv_text = http_get_text(ecb_url)
-            lines = [ln.strip() for ln in csv_text.splitlines() if ln.strip()]
-            headers = lines[0].split(",")
-            obs_idx = headers.index("OBS_VALUE")
-            last_row = lines[-1].split(",")
-            eur_usd = float(last_row[obs_idx])
-            src_url = ecb_url
+            series = fetch_ecb_usd_series(f"{today.year}-01-01")
+            ytd = [BAM_PER_EUR_PEG / v for d, v in series if d.year == today.year]
+            new_avg = round(statistics.mean(ytd), 4) if ytd else cur_avg
+            src_url = ECB_FX_URL
         except Exception:
-            # Fallback to official ECB JSON mirror (api.frankfurter.dev)
-            ff_url = "https://api.frankfurter.dev/v1/latest?from=EUR&to=USD"
-            js = json.loads(http_get_text(ff_url))
-            eur_usd = float(js["rates"]["USD"])
-            src_url = ff_url
-
+            series = fetch_ecb_latest_usd_xml()  # may raise -> FAILED
+            new_avg = cur_avg  # cannot recompute from a single day
+            src_url = ECB_DAILY_XML
+        obs_date, eur_usd = series[-1]
         new_spot = round(BAM_PER_EUR_PEG / eur_usd, 4)
-        new_ytd_avg = cur_ytd_avg
 
-    # Sanity check: reject if FX moves > 3.0% in a single day
-    pct_move = abs(new_spot - old_spot) / old_spot if old_spot else 0.0
-    if pct_move > 0.03:
-        raise ValueError(f"SANITY REJECT: BAM/USD spot moved {pct_move*100:.2f}% ({old_spot} -> {new_spot}), exceeding 3.0% daily limit!")
+    move = abs(new_spot - old_spot) / old_spot if old_spot else 0.0
+    if move > 0.03:
+        raise ValueError(
+            f"SANITY REJECT: BAM/USD spot moved {move*100:.2f}% ({old_spot} -> {new_spot}), above the 3.0% limit"
+        )
 
-    yoy_pct = ((new_ytd_avg - 1.7347) / 1.7347) * 100.0
-    updates = {
+    label = f"{obs_date.strftime('%b')} {obs_date.day}"  # e.g. "Nov 21" (ECB observation date)
+    yoy = ((new_avg - 1.7347) / 1.7347) * 100.0
+    return {
         "BIH-0128": {
-            "Primary_Value": f"{new_ytd_avg:.4f} (Avg) / {new_spot:.4f} ({today_short} Spot)",
-            "Secondary_Value": f"Peg: 1.95583 BAM/EUR | EUR/USD: {eur_usd:.4f} (Spot) | YoY vs USD: {yoy_pct:+.1f}% (Avg)",
-            "Technical_Commercial_Notes_Details": f"Structural Driver: Official CBBH / ECB Spot on {today_short}, {today_dt.year}: {new_spot:.4f} BAM/USD",
-            "Verification_Status_Source_URL": f"VERIFIED {today_ver} | CBBH (cbbh.ba); ECB Reference Rate ({src_url})"
+            "Primary_Value": f"{new_avg:.4f} (Avg) / {new_spot:.4f} ({label} Spot)",
+            "Secondary_Value": f"Peg: 1.95583 BAM/EUR | EUR/USD: {eur_usd:.4f} (Spot) | YoY vs USD: {yoy:+.1f}% (Avg)",
+            "Technical_Commercial_Notes_Details": f"Structural Driver: Official CBBH / ECB Spot on {label}, {obs_date.year}: {new_spot:.4f} BAM/USD",
+            "Verification_Status_Source_URL": f"VERIFIED {today.strftime('%d.%m.%Y')} | CBBH (cbbh.ba); ECB Reference Rate ({src_url})",
         }
     }
-    return updates
 
 
 # ==============================================================================
-# TIER 1B (DAILY): Regional Day-Ahead Power Price (BIH-0487 — SEEPEX / HUPX)
+# DAILY (TEMPORARY SOURCE): Regional day-ahead power price -> BIH-0487
 # ==============================================================================
-def fetch_day_ahead_power(existing_rows: Dict[str, Dict[str, str]], test_override_price: Optional[float] = None) -> Dict[str, Dict[str, str]]:
-    """
-    Fetches daily Day-Ahead baseload clearing price (EUR/MWh) for the coupled
-    SEEPEX (RS) / HUPX (HU) bidding zone via Energy-Charts (ENTSO-E Transparency feed).
-    Updates BIH-0487.
-    """
+def fetch_day_ahead_power(
+    existing_rows: Dict[str, Dict[str, str]],
+    test_override_price: Optional[float] = None,
+) -> Dict[str, Dict[str, str]]:
     if "BIH-0487" not in existing_rows:
         return {}
-
-    today_ver = datetime.date.today().strftime("%d.%m.%Y")
+    today_ver = now_utc().strftime("%d.%m.%Y")
     ind_tariff = lead_num(existing_rows.get("BIH-0424", {}).get("Primary_Value"), 118.57) or 118.57
 
     if test_override_price is not None:
@@ -203,75 +264,81 @@ def fetch_day_ahead_power(existing_rows: Dict[str, Dict[str, str]], test_overrid
     return {
         "BIH-0487": {
             "Primary_Value": f"{base_eur:.2f}",
-            "Secondary_Value": f"Peak: {peak_eur:.2f} EUR/MWh | 30D Avg: {base_eur:.2f} EUR/MWh | Spread vs Ind: {spread:+.2f} EUR/MWh",
+            # "Avg" (not "30D Avg"): this is the average of the latest 24 prices, not a 30-day mean.
+            "Secondary_Value": f"Peak: {peak_eur:.2f} EUR/MWh | Avg (latest 24 prices): {base_eur:.2f} EUR/MWh | Spread vs Ind: {spread:+.2f} EUR/MWh",
             "Tariff_Price_Rate_Value": f"{base_eur:.2f} EUR/MWh",
             "EndUser_Tariff_EUR_MWh": f"{base_eur:.2f}",
-            "Verification_Status_Source_URL": f"VERIFIED {today_ver} | {src_url} (ENTSO-E / SEEPEX / HUPX)"
+            "Verification_Status_Source_URL": f"VERIFIED {today_ver} | {src_url} (Energy-Charts / Fraunhofer ISE; ENTSO-E data) - TEMPORARY SOURCE",
         }
     }
 
 
 # ==============================================================================
-# TIER 2 (MONTHLY / QUARTERLY): Macro GDP & CPI (IMF DataMapper & World Bank)
+# SEMI-ANNUAL (IMF WEO: April / October): GDP 2026 projection -> BIH-0112
 # ==============================================================================
+IMF_BASES = [
+    "https://www.imf.org/external/datamapper/api/v2",  # current version
+    "https://www.imf.org/external/datamapper/api/v1",  # legacy, tried second
+]
+
+
 def fetch_macro_imf(existing_rows: Dict[str, Dict[str, str]]) -> Dict[str, Dict[str, str]]:
-    """
-    Checks IMF DataMapper API (NGDPD for Nominal GDP $B) for BiH.
-    Only updates BIH-0111 (2025) / BIH-0112 (2026P) if IMF publishes a new revision
-    within sanity limits (+/- 20%).
-    """
-    url = "https://www.imf.org/external/datamapper/api/v1/NGDPD/BIH"
-    raw = json.loads(http_get_text(url))
-    bih_series = raw.get("values", {}).get("NGDPD", {}).get("BIH", {})
-    if not bih_series:
-        return {}
+    series: Dict[str, Any] = {}
+    last_err: Optional[Exception] = None
+    used_url = ""
+    for base in IMF_BASES:
+        url = f"{base}/NGDPD/BIH"
+        try:
+            raw = json.loads(http_get_text(url))
+            series = raw.get("values", {}).get("NGDPD", {}).get("BIH", {})
+            if series:
+                used_url = url
+                break
+        except Exception as e:
+            last_err = e
+    if not series:
+        raise NonCritical(f"IMF DataMapper unavailable ({last_err}); GDP stays unchanged")
 
-    today_ver = datetime.date.today().strftime("%d.%m.%Y")
+    today_ver = now_utc().strftime("%d.%m.%Y")
     updates: Dict[str, Dict[str, str]] = {}
-
-    if "2026" in bih_series:
-        new_gdp26 = round(float(bih_series["2026"]), 2)
-        old_gdp26 = lead_num(existing_rows.get("BIH-0112", {}).get("Primary_Value"), 37.26) or 37.26
-        if 0.80 <= (new_gdp26 / old_gdp26) <= 1.20 and abs(new_gdp26 - old_gdp26) >= 0.01:
+    if "2026" in series:
+        new_gdp = round(float(series["2026"]), 2)
+        old_gdp = lead_num(existing_rows.get("BIH-0112", {}).get("Primary_Value"), 37.26) or 37.26
+        if 0.80 <= (new_gdp / old_gdp) <= 1.20 and abs(new_gdp - old_gdp) >= 0.01:
             updates["BIH-0112"] = {
-                "Primary_Value": f"${new_gdp26:.2f} Billion",
-                "Verification_Status_Source_URL": f"VERIFIED {today_ver} | IMF DataMapper ({url})"
+                "Primary_Value": f"${new_gdp:.2f} Billion",
+                "Verification_Status_Source_URL": f"VERIFIED {today_ver} | IMF DataMapper ({used_url})",
             }
     return updates
 
 
 # ==============================================================================
-# TIER 3 (WATCHDOG ALERTS): Regulatory & Grid Document Hash Check (No Overwrite)
+# WATCHDOGS: page fingerprints only (never overwrite data)
 # ==============================================================================
 def check_regulatory_watchdogs() -> Dict[str, str]:
-    """
-    Checks NOSBiH, DERK, FERK, and RERS portals for new PDF/XLS publications.
-    Never auto-overwrites Domain 3, 7, or 9; logs document status in status.json.
-    """
     watch_urls = {
         "NOSBiH_Balanced_Users": "https://www.nosbih.ba/bs/dokumenti/registri/bilansirani-korisnici/",
         "DERK_Reports": "https://www.derk.ba/en/izvjetaji-mainmenu-109",
-        "FERK_Decisions": "https://www.ferk.ba/"
+        "FERK_Decisions": "https://www.ferk.ba/",
     }
-    results = {}
+    results: Dict[str, str] = {}
     for name, url in watch_urls.items():
         try:
             html = http_get_text(url, timeout=10)
-            doc_hash = hashlib.sha256(html.encode("utf-8", errors="ignore")).hexdigest()[:12]
-            results[name] = f"OK (sha256:{doc_hash})"
+            results[name] = f"OK (sha256:{hashlib.sha256(html.encode('utf-8', errors='ignore')).hexdigest()[:12]})"
         except Exception as e:
             results[name] = f"SKIPPED ({type(e).__name__})"
     return results
 
 
 # ==============================================================================
-# CORE ENGINE: Apply Updates, Write CSV + Change Log + Status JSON
+# CORE ENGINE
 # ==============================================================================
 def run_update(
     dry_run: bool = False,
     test_fx_spot: Optional[float] = None,
     test_da_price: Optional[float] = None,
-    simulate_fx_failure: bool = False
+    simulate_fx_failure: bool = False,
 ) -> Dict[str, Any]:
     with open(CSV_PATH, "r", encoding="utf-8", newline="") as f:
         reader = csv.DictReader(f)
@@ -284,59 +351,46 @@ def run_update(
 
     row_map = {r["Record_ID"]: r for r in rows}
     status_report: Dict[str, Any] = {
-        "last_run_utc": datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "last_verified_date": datetime.date.today().strftime("%d %b %Y"),
+        "last_run_utc": now_utc().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "last_verified_date": now_utc().strftime("%d %b %Y"),
         "row_count": len(rows),
         "datasets": {},
-        "changes_applied": 0
+        "changes_applied": 0,
     }
+    pending: Dict[str, Tuple[Dict[str, str], str]] = {}
 
-    pending_updates: Dict[str, Tuple[Dict[str, str], str]] = {}
+    def run_dataset(key: str, fn, src_tag: str) -> None:
+        try:
+            for rid, chg in fn().items():
+                pending[rid] = (chg, src_tag)
+            status_report["datasets"][key] = "SUCCESS"
+        except NonCritical as e:
+            status_report["datasets"][key] = f"WARN: {e}"
+        except Exception as e:
+            status_report["datasets"][key] = f"FAILED: {e}"
 
-    # 1. Daily FX Fetcher
-    try:
+    def fx_job():
         if simulate_fx_failure:
             raise urllib.error.URLError("Simulated FX endpoint outage")
-        fx_upd = fetch_fx(row_map, test_override_spot=test_fx_spot)
-        for rid, chg in fx_upd.items():
-            pending_updates[rid] = (chg, "ECB/CBBH_FX")
-        status_report["datasets"]["fx_bam_usd"] = "SUCCESS"
-    except Exception as e:
-        status_report["datasets"]["fx_bam_usd"] = f"FAILED: {e}"
+        return fetch_fx(row_map, test_override_spot=test_fx_spot)
 
-    # 2. Daily Regional Day-Ahead Power Price (BIH-0487)
-    try:
-        da_upd = fetch_day_ahead_power(row_map, test_override_price=test_da_price)
-        for rid, chg in da_upd.items():
-            pending_updates[rid] = (chg, "ENTSOE_SEEPEX_HUPX")
-        status_report["datasets"]["day_ahead_power"] = "SUCCESS"
-    except Exception as e:
-        status_report["datasets"]["day_ahead_power"] = f"FAILED: {e}"
+    run_dataset("fx_bam_usd", fx_job, "ECB/CBBH_FX")
+    run_dataset("day_ahead_power", lambda: fetch_day_ahead_power(row_map, test_override_price=test_da_price), "ENERGY_CHARTS_TEMP")
 
-    # 3. Monthly/Quarterly IMF Macro Check (only when not in isolated unit test)
     if test_fx_spot is None and test_da_price is None and not simulate_fx_failure:
-        try:
-            imf_upd = fetch_macro_imf(row_map)
-            for rid, chg in imf_upd.items():
-                pending_updates[rid] = (chg, "IMF_DataMapper")
-            status_report["datasets"]["macro_imf"] = "SUCCESS"
-        except Exception as e:
-            status_report["datasets"]["macro_imf"] = f"FAILED: {e}"
+        run_dataset("macro_imf", lambda: fetch_macro_imf(row_map), "IMF_DataMapper")
         status_report["watchdogs"] = check_regulatory_watchdogs()
 
-    # Apply updates in-place with strict protection checks
-    changelog_entries: List[Dict[str, str]] = []
-    today_iso = datetime.date.today().isoformat()
-
+    changelog: List[Dict[str, str]] = []
+    today_iso = now_utc().date().isoformat()
     for r in rows:
         rid = r["Record_ID"]
-        if rid not in pending_updates:
+        if rid not in pending:
             continue
         if r["Domain_Category"].startswith(PROTECTED_DOMAIN_PREFIXES):
             status_report["datasets"][f"blocked_{rid}"] = "SKIPPED_PROTECTED_DOMAIN"
             continue
-
-        col_changes, src_tag = pending_updates[rid]
+        col_changes, src_tag = pending[rid]
         for col, new_val in col_changes.items():
             if col not in fieldnames or col in ("Record_ID", "Domain_Category"):
                 continue
@@ -344,36 +398,28 @@ def run_update(
             if str(old_val).strip() != str(new_val).strip():
                 r[col] = str(new_val)
                 if col == "Primary_Value":
-                    changelog_entries.append({
-                        "Date": today_iso,
-                        "Record_ID": rid,
-                        "Column": col,
-                        "Old_Value": old_val,
-                        "New_Value": str(new_val),
-                        "Source": src_tag
+                    changelog.append({
+                        "Date": today_iso, "Record_ID": rid, "Column": col,
+                        "Old_Value": old_val, "New_Value": str(new_val), "Source": src_tag,
                     })
 
-    # Post-update schema check
     ok_post, msg_post = validate_schema(rows, fieldnames)
     if not ok_post:
         raise RuntimeError(f"Post-update schema check failed: {msg_post}")
 
-    status_report["changes_applied"] = len(changelog_entries)
+    status_report["changes_applied"] = len(changelog)
 
     if not dry_run:
         with open(CSV_PATH, "w", encoding="utf-8", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=fieldnames)
-            writer.writeheader()
-            writer.writerows(rows)
-
-        file_exists = os.path.exists(CHANGELOG_PATH)
+            w = csv.DictWriter(f, fieldnames=fieldnames)
+            w.writeheader()
+            w.writerows(rows)
+        exists = os.path.exists(CHANGELOG_PATH)
         with open(CHANGELOG_PATH, "a", encoding="utf-8", newline="") as f:
-            log_fields = ["Date", "Record_ID", "Column", "Old_Value", "New_Value", "Source"]
-            writer = csv.DictWriter(f, fieldnames=log_fields)
-            if not file_exists:
-                writer.writeheader()
-            writer.writerows(changelog_entries)
-
+            w = csv.DictWriter(f, fieldnames=["Date", "Record_ID", "Column", "Old_Value", "New_Value", "Source"])
+            if not exists:
+                w.writeheader()
+            w.writerows(changelog)
         with open(STATUS_PATH, "w", encoding="utf-8") as f:
             json.dump(status_report, f, indent=2)
 
@@ -381,6 +427,7 @@ def run_update(
 
 
 if __name__ == "__main__":
-    fx_arg = float(sys.argv[1]) if len(sys.argv) > 1 and sys.argv[1] != "none" else None
-    rep = run_update(test_fx_spot=fx_arg)
+    args = [a for a in sys.argv[1:] if a != "--dry-run"]
+    fx_arg = float(args[0]) if args and args[0] != "none" else None
+    rep = run_update(dry_run="--dry-run" in sys.argv, test_fx_spot=fx_arg)
     print(json.dumps(rep, indent=2))
