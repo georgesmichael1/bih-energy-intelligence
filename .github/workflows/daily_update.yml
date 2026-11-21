@@ -2,18 +2,24 @@ name: BiH Energy Daily Auto-Update
 
 on:
   schedule:
-    # Runs every day at 05:00 UTC (06:00 CET / 07:00 CEST Europe/Sarajevo)
+    # Runs every day at 05:00 UTC (06:00 CET / 07:00 CEST Europe/Sarajevo).
+    # GitHub may delay scheduled runs by several minutes to an hour.
     - cron: '0 5 * * *'
   workflow_dispatch:
 
 permissions:
   contents: write
 
+concurrency:
+  group: bih-daily-update
+  cancel-in-progress: false
+
 jobs:
   update-bih-master-csv:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - name: Checkout Private Repository
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Set up Python 3.11
@@ -21,20 +27,41 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Run BiH Daily Updater & Schema Gate
-        id: updater
-        run: |
-          python3 update_bih.py
+      - name: Run BiH daily updater and schema gate
+        run: python3 update_bih.py
 
-      - name: Commit & Push Updated CSV, Change Log & Status JSON
+      # Good data is saved first, even if one dataset failed.
+      - name: Commit and push updated CSV, change log and status JSON
         run: |
           git config user.name "BiH Energy Auto-Updater"
-          git config user.email "george.michael@elsewdy.com"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
           git add bih_data.csv change_log.csv status.json
-          git diff --staged --quiet || git commit -m "chore(data): daily auto-update $(date -u +'%Y-%m-%d')"
-          git push
+          if git diff --staged --quiet; then
+            echo "No data changes today."
+          else
+            git commit -m "chore(data): daily auto-update $(date -u +'%Y-%m-%d')"
+            git pull --rebase
+            git push
+          fi
 
-      - name: Send Failure Alert Email to George Michael
+      # The updater catches per-dataset errors internally, so the job would
+      # otherwise stay green. This step turns any FAILED dataset into a red run.
+      - name: Fail the run if any dataset failed
+        run: |
+          python3 - <<'PY'
+          import json, sys
+          status = json.load(open("status.json", encoding="utf-8"))
+          bad = {k: v for k, v in status.get("datasets", {}).items()
+                 if str(v).startswith("FAILED")}
+          if bad:
+              print("Datasets that failed:")
+              for k, v in bad.items():
+                  print(f"  - {k}: {v}")
+              sys.exit(1)
+          print("All datasets OK.")
+          PY
+
+      - name: Send failure alert email
         if: failure()
         uses: dawidd6/action-send-mail@v3
         with:
@@ -42,10 +69,10 @@ jobs:
           server_port: ${{ secrets.SMTP_PORT }}
           username: ${{ secrets.SMTP_USERNAME }}
           password: ${{ secrets.SMTP_PASSWORD }}
-          subject: "[ALERT] BiH Energy Master Workbook Daily Auto-Update Failed"
-          to: "george.michael@elsewdy.com"
-          from: "BiH Energy Auto-Updater <george.michael@elsewdy.com>"
+          subject: "[ALERT] BiH Energy daily auto-update failed or had a failed dataset"
+          to: "george.michael@elsewedy.com"
+          from: "BiH Energy Auto-Updater <george.michael@elsewedy.com>"
           body: |
-            The daily scheduled update for BiH_Consolidated_Master_Database_Synchronized.xlsm encountered an error or sanity-limit rejection.
+            The daily BiH Energy update failed, or one dataset failed inside it.
             Repository: ${{ github.repository }}
             Run URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
