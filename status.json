@@ -1,5 +1,5 @@
 {
-  "last_run_utc": "2026-11-21T13:06:04Z",
+  "last_run_utc": "2026-11-21T21:21:15Z",
   "last_verified_date": "21 Nov 2026",
   "row_count": 487,
   "datasets": {
@@ -7,9 +7,9 @@
     "day_ahead_power": "SUCCESS",
     "macro_imf": "FAILED: HTTP Error 404: Not Found"
   },
-  "changes_applied": 2,
+  "changes_applied": 0,
   "watchdogs": {
-    "NOSBiH_Balanced_Users": "OK (sha256:458bfd337a42)",
+    "NOSBiH_Balanced_Users": "OK (sha256:0ee5751802eb)",
     "DERK_Reports": "SKIPPED (HTTPError)",
     "FERK_Decisions": "OK (sha256:4bde90bbebc2)"
   }
