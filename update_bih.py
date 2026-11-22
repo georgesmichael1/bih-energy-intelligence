@@ -43,9 +43,11 @@ import urllib.request
 from typing import Any, Dict, List, Optional, Tuple
 
 CSV_PATH = os.environ.get("BIH_CSV_PATH", "bih_data.csv")
+GEN_CSV_PATH = os.environ.get("BIH_GEN_CSV_PATH", "Generation_Monthly.csv")
 CHANGELOG_PATH = os.environ.get("BIH_CHANGELOG_PATH", "change_log.csv")
 STATUS_PATH = os.environ.get("BIH_STATUS_PATH", "status.json")
 CACHE_DIR = os.environ.get("BIH_CACHE_DIR", "raw_cache")
+
 
 BAM_PER_EUR_PEG = 1.95583  # CBBH currency board peg (fixed by law)
 
@@ -63,6 +65,9 @@ ALLOWED_HOSTS = {
     # TEMPORARY - Fraunhofer ISE Energy-Charts, used for BIH-0487 only.
     # To be replaced by an official power-exchange / ENTSO-E source.
     "api.energy-charts.info",
+    "bhas.gov.ba",              # Agency for Statistics of BiH (direct PDFs)
+    "www.bhas.gov.ba",          # Agency for Statistics of BiH
+    "data-api.ecb.europa.eu",   # European Central Bank - FX reference rates
 }
 
 EXPECTED_HEADERS = [
@@ -145,6 +150,23 @@ def http_get_text(url: str, timeout: int = 20, retries: int = 2) -> str:
         f.write(data)
     return data
 
+def http_get_bytes(url: str, timeout: int = 20, retries: int = 2) -> bytes:
+    """Download binary file (e.g. official BHAS PDF) from an allow-listed host only."""
+    host = urllib.parse.urlparse(url).hostname or ""
+    if host not in ALLOWED_HOSTS:
+        raise ValueError(f"Blocked: '{host}' is not an allow-listed official source")
+    req = urllib.request.Request(
+        url,
+        headers={"User-Agent": "BiH-Energy-Master-Updater/2.0 (george.michael@elsewedy.com)"},
+    )
+    last_err: Optional[Exception] = None
+    for _ in range(retries + 1):
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return resp.read()
+        except Exception as e:
+            last_err = e
+    raise last_err  # type: ignore[misc]
 
 # ==============================================================================
 # DAILY: FX BAM/USD  (ECB reference rate + CBBH peg 1.95583)  -> BIH-0128
@@ -330,6 +352,170 @@ def check_regulatory_watchdogs() -> Dict[str, str]:
             results[name] = f"SKIPPED ({type(e).__name__})"
     return results
 
+# ==============================================================================
+# MONTHLY (BHAS Official Release PDFs): Generation_Monthly.csv
+# URL pattern: https://bhas.gov.ba/data/Publikacije/Saopstenja/{YYYY}/ENE_01_{YYYY}_{MM:02d}_1_BS.pdf
+# ==============================================================================
+
+import zlib
+
+def _extract_pdf_text(pdf_bytes: bytes) -> str:
+    """Extract plain text from a BHAS PDF using pypdf (if installed) or built-in zlib FlateDecode."""
+    try:
+        import pypdf  # type: ignore
+        reader = pypdf.PdfReader(io.BytesIO(pdf_bytes))
+        return "\n".join(page.extract_text() or "" for page in reader.pages)
+    except Exception:
+        pass
+
+    # Built-in fallback: decompress PDF FlateDecode streams with stdlib zlib
+    chunks: List[str] = []
+    for m in re.finditer(rb"stream[\r\n]+(.*?)[\r\n]+endstream", pdf_bytes, re.DOTALL):
+        raw_stream = m.group(1)
+        for wbits in (zlib.MAX_WBITS, -zlib.MAX_WBITS):
+            try:
+                decomp = zlib.decompress(raw_stream, wbits).decode("latin1", errors="ignore")
+                # Extract text inside PDF parentheses (...) or hex/plain tokens
+                txt_parts = re.findall(r"\(([^()]*)\)", decomp)
+                if txt_parts:
+                    chunks.append("".join(txt_parts))
+                else:
+                    chunks.append(decomp)
+                break
+            except Exception:
+                continue
+    return " ".join(chunks)
+
+
+def _parse_bhas_ene01_text(text: str) -> Optional[Tuple[float, float, float, float]]:
+    """
+    Parse Gross GWh, Hydro %, Thermal %, Solar/Wind % from official BHAS ENE_01 release text.
+    Matches either English or Bosnian/Croatian standard sentence on Page 1 of ENE_01.
+    """
+    clean = re.sub(r"\s+", " ", text)
+
+    # 1. Try English sentence:
+    # "Gross electricity production in Bosnia and Herzegovina was 1 090 GWh ... hydro ... 27.9%, thermal ... 62.1% and solar and wind ... 10%"
+    m_en = re.search(
+        r"Gross electricity production in Bosnia and Herzegovina.*?was\s+([\d\s.,]+)\s*GWh.*?"
+        r"hydro.*?([\d.,]+)\s*%.*?thermal.*?([\d.,]+)\s*%.*?solar.*?([\d.,]+)\s*%",
+        clean,
+        re.IGNORECASE,
+    )
+    if not m_en:
+        # 2. Try Bosnian/Croatian sentence:
+        # "Bruto proizvodnja električne energije u Bosni i Hercegovini ... iznosi 1 090 GWh ... hidroelektrane ... 27,9%, termoelektrane sa 62,1%, a solarne i vjetroelektrane sa 10%"
+        m_en = re.search(
+            r"Bruto proizvodnja elektri.*?iznosi\s+([\d\s.,]+)\s*GWh.*?"
+            r"hidroelektrane.*?([\d.,]+)\s*%.*?termoelektrane.*?([\d.,]+)\s*%.*?solarne.*?([\d.,]+)\s*%",
+            clean,
+            re.IGNORECASE,
+        )
+    if not m_en:
+        return None
+
+    def _to_float(s: str) -> float:
+        s = s.replace(" ", "").replace(",", ".")
+        return float(s)
+
+    gross = _to_float(m_en.group(1))
+    hydro = _to_float(m_en.group(2))
+    thermal = _to_float(m_en.group(3))
+    solar_wind = _to_float(m_en.group(4))
+
+    if not (100.0 <= gross <= 3000.0):
+        return None
+    if not (98.0 <= (hydro + thermal + solar_wind) <= 102.0):
+        return None
+
+    return round(gross, 1), round(hydro, 1), round(thermal, 1), round(solar_wind, 1)
+
+
+def fetch_bhas_month(year: int, month: int) -> Optional[Tuple[float, float, float, float, str]]:
+    """Try downloading and parsing the official BHAS ENE_01 PDF for (year, month)."""
+    for lang in ("BS", "EN", "HR"):
+        url = f"https://bhas.gov.ba/data/Publikacije/Saopstenja/{year}/ENE_01_{year}_{month:02d}_1_{lang}.pdf"
+        try:
+            pdf_bytes = http_get_bytes(url, timeout=15, retries=1)
+        except Exception:
+            continue
+        parsed = _parse_bhas_ene01_text(_extract_pdf_text(pdf_bytes))
+        if parsed is not None:
+            g, h, t, s = parsed
+            return g, h, t, s, f"BHAS ENE 01 {year} {month:02d} ({url})"
+    return None
+
+
+def update_generation_monthly(dry_run: bool = False) -> Tuple[int, str]:
+    """
+    Reads Generation_Monthly.csv, checks every incomplete/missing (Year, Month) up to current UTC date
+    against https://bhas.gov.ba, and writes updated Generation_Monthly.csv.
+    """
+    rows: Dict[Tuple[int, int], List[str]] = {}
+    if os.path.exists(GEN_CSV_PATH):
+        with open(GEN_CSV_PATH, "r", encoding="utf-8", newline="") as f:
+            reader = csv.reader(f)
+            next(reader, None)  # skip header
+            for r in reader:
+                if len(r) >= 2 and r[0].strip().isdigit() and r.strip().isdigit():
+                    yr, mo = int(r[0].strip()), int(r.strip())
+                    # If row had an unquoted comma in Source (like Dec 2025), rejoin extra cols safely
+                    gross = r.strip() if len(r) > 2 else ""
+                    hp = r.strip() if len(r) > 3 else ""
+                    tp = r.strip() if len(r) > 4 else ""
+                    sp = r.strip() if len(r) > 5 else ""
+                    src = r.strip() if len(r) > 6 else ""
+                    nts = r[-1].strip() if len(r) > 7 else ""
+                    rows[(yr, mo)] = [str(yr), str(mo), gross, hp, tp, sp, src, nts]
+
+    today = now_utc().date()
+    # Ensure all months from 2025-01 up to 2 months before today exist as candidate keys
+    cur_y, cur_m = 2025, 1
+    while (cur_y, cur_m) <= (today.year, today.month):
+        if (cur_y, cur_m) not in rows:
+            rows[(cur_y, cur_m)] = [str(cur_y), str(cur_m), "", "", "", "", "", ""]
+        cur_m += 1
+        if cur_m > 12:
+            cur_m = 1
+            cur_y += 1
+
+    updated_count = 0
+    for (yr, mo), cur in sorted(rows.items()):
+        # Skip if all 4 numbers (Gross, Hydro_pct, Thermal_pct, SolarWind_pct) are already present
+        if cur and cur and cur and cur:
+            continue
+        res = fetch_bhas_month(yr, mo)
+        if res is not None:
+            g, h, t, s, src_label = res
+            rows[(yr, mo)] = [
+                str(yr),
+                str(mo),
+                cur if cur else f"{g:g}",
+                cur if cur else f"{h:.1f}",
+                cur if cur else f"{t:.1f}",
+                cur if cur else f"{s:.1f}",
+                src_label,
+                "",
+            ]
+            updated_count += 1
+
+    # Remove future empty placeholder months that BHAS hasn't published yet
+    final_rows = [
+        v for k, v in sorted(rows.items())
+        if v or v or v or v or v or v
+    ]
+
+    if not dry_run and os.path.exists(GEN_CSV_PATH):
+        with open(GEN_CSV_PATH, "w", encoding="utf-8", newline="") as f:
+            w = csv.writer(f)
+            w.writerow(["Year", "Month", "Gross_GWh", "Hydro_pct", "Thermal_pct", "SolarWind_pct", "Source", "Notes"])
+            w.writerows(final_rows)
+
+    complete_2025 = sum(
+        1 for (yr, mo), v in rows.items()
+        if yr == 2025 and v and v and v and v
+    )
+    return updated_count, f"OK ({updated_count} months fetched from BHAS; {complete_2025}/12 of 2025 complete)"
 
 # ==============================================================================
 # CORE ENGINE
@@ -380,6 +566,13 @@ def run_update(
     if test_fx_spot is None and test_da_price is None and not simulate_fx_failure:
         run_dataset("macro_imf", lambda: fetch_macro_imf(row_map), "IMF_DataMapper")
         status_report["watchdogs"] = check_regulatory_watchdogs()
+        try:
+            gen_chg, gen_msg = update_generation_monthly(dry_run=dry_run)
+            status_report["datasets"]["bhas_generation_monthly"] = gen_msg
+            status_report["changes_applied"] += gen_chg
+        except Exception as e:
+            status_report["datasets"]["bhas_generation_monthly"] = f"WARN: {e}"
+
 
     changelog: List[Dict[str, str]] = []
     today_iso = now_utc().date().isoformat()
