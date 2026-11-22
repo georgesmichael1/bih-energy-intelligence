@@ -2,8 +2,8 @@
 """
 BiH Energy Workbook - Daily Auto-Updater (update_bih.py)  [v2]
 ==============================================================
-Maintains `bih_data.csv`, `change_log.csv` and `status.json` for the Excel/VBA
-dashboard.
+Maintains `bih_data.csv`, `Generation_Monthly.csv`, `change_log.csv` and `status.json`
+for the Excel/VBA dashboard.
 
 What changed vs v1
 ------------------
@@ -12,6 +12,8 @@ What changed vs v1
 * FX: the spot label now uses the ECB observation date (not "today", which was
   wrong on weekends) and the 2026 YTD average is now really recomputed from the
   ECB daily series instead of staying frozen.
+* BHAS Monthly Generation: automatically downloads official BHAS ENE_01 PDFs
+  from bhas.gov.ba and populates missing/new months in Generation_Monthly.csv.
 * IMF check tries the current DataMapper API (v2) first, and a failure is now a
   WARN (non-critical) instead of a red run, because it only matters twice a year
   (IMF WEO is published in April and October).
@@ -40,6 +42,7 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+import zlib
 from typing import Any, Dict, List, Optional, Tuple
 
 CSV_PATH = os.environ.get("BIH_CSV_PATH", "bih_data.csv")
@@ -47,7 +50,6 @@ GEN_CSV_PATH = os.environ.get("BIH_GEN_CSV_PATH", "Generation_Monthly.csv")
 CHANGELOG_PATH = os.environ.get("BIH_CHANGELOG_PATH", "change_log.csv")
 STATUS_PATH = os.environ.get("BIH_STATUS_PATH", "status.json")
 CACHE_DIR = os.environ.get("BIH_CACHE_DIR", "raw_cache")
-
 
 BAM_PER_EUR_PEG = 1.95583  # CBBH currency board peg (fixed by law)
 
@@ -59,15 +61,14 @@ ALLOWED_HOSTS = {
     "www.imf.org",              # International Monetary Fund - DataMapper
     "api.worldbank.org",        # World Bank
     "www.cbbh.ba",              # Central Bank of BiH
+    "bhas.gov.ba",              # Agency for Statistics of BiH (official ENE_01 PDFs)
+    "www.bhas.gov.ba",          # Agency for Statistics of BiH
     "www.nosbih.ba",            # NOSBiH (grid operator) - watchdog only
     "www.derk.ba",              # DERK (state regulator) - watchdog only
     "www.ferk.ba",              # FERK (FBiH regulator) - watchdog only
     # TEMPORARY - Fraunhofer ISE Energy-Charts, used for BIH-0487 only.
     # To be replaced by an official power-exchange / ENTSO-E source.
     "api.energy-charts.info",
-    "bhas.gov.ba",              # Agency for Statistics of BiH (direct PDFs)
-    "www.bhas.gov.ba",          # Agency for Statistics of BiH
-    "data-api.ecb.europa.eu",   # European Central Bank - FX reference rates
 }
 
 EXPECTED_HEADERS = [
@@ -129,6 +130,7 @@ def http_get_text(url: str, timeout: int = 20, retries: int = 2) -> str:
     host = urllib.parse.urlparse(url).hostname or ""
     if host not in ALLOWED_HOSTS:
         raise ValueError(f"Blocked: '{host}' is not an allow-listed official source")
+
     os.makedirs(CACHE_DIR, exist_ok=True)
     req = urllib.request.Request(
         url,
@@ -144,11 +146,13 @@ def http_get_text(url: str, timeout: int = 20, retries: int = 2) -> str:
             last_err = e
     else:
         raise last_err  # type: ignore[misc]
+
     ts = now_utc().strftime("%Y%m%d")
     h = hashlib.md5(url.encode("utf-8")).hexdigest()[:10]
     with open(os.path.join(CACHE_DIR, f"{ts}_{h}.txt"), "w", encoding="utf-8") as f:
         f.write(data)
     return data
+
 
 def http_get_bytes(url: str, timeout: int = 20, retries: int = 2) -> bytes:
     """Download binary file (e.g. official BHAS PDF) from an allow-listed host only."""
@@ -168,9 +172,11 @@ def http_get_bytes(url: str, timeout: int = 20, retries: int = 2) -> bytes:
             last_err = e
     raise last_err  # type: ignore[misc]
 
+
 # ==============================================================================
 # DAILY: FX BAM/USD  (ECB reference rate + CBBH peg 1.95583)  -> BIH-0128
 # ==============================================================================
+
 ECB_FX_URL = "https://data-api.ecb.europa.eu/service/data/EXR/D.USD.EUR.SP00.A"
 ECB_DAILY_XML = "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml"
 
@@ -242,6 +248,7 @@ def fetch_fx(
 
     label = f"{obs_date.strftime('%b')} {obs_date.day}"  # e.g. "Nov 21" (ECB observation date)
     yoy = ((new_avg - 1.7347) / 1.7347) * 100.0
+
     return {
         "BIH-0128": {
             "Primary_Value": f"{new_avg:.4f} (Avg) / {new_spot:.4f} ({label} Spot)",
@@ -255,12 +262,14 @@ def fetch_fx(
 # ==============================================================================
 # DAILY (TEMPORARY SOURCE): Regional day-ahead power price -> BIH-0487
 # ==============================================================================
+
 def fetch_day_ahead_power(
     existing_rows: Dict[str, Dict[str, str]],
     test_override_price: Optional[float] = None,
 ) -> Dict[str, Dict[str, str]]:
     if "BIH-0487" not in existing_rows:
         return {}
+
     today_ver = now_utc().strftime("%d.%m.%Y")
     ind_tariff = lead_num(existing_rows.get("BIH-0424", {}).get("Primary_Value"), 118.57) or 118.57
 
@@ -298,6 +307,7 @@ def fetch_day_ahead_power(
 # ==============================================================================
 # SEMI-ANNUAL (IMF WEO: April / October): GDP 2026 projection -> BIH-0112
 # ==============================================================================
+
 IMF_BASES = [
     "https://www.imf.org/external/datamapper/api/v2",  # current version
     "https://www.imf.org/external/datamapper/api/v1",  # legacy, tried second
@@ -318,6 +328,7 @@ def fetch_macro_imf(existing_rows: Dict[str, Dict[str, str]]) -> Dict[str, Dict[
                 break
         except Exception as e:
             last_err = e
+
     if not series:
         raise NonCritical(f"IMF DataMapper unavailable ({last_err}); GDP stays unchanged")
 
@@ -337,6 +348,7 @@ def fetch_macro_imf(existing_rows: Dict[str, Dict[str, str]]) -> Dict[str, Dict[
 # ==============================================================================
 # WATCHDOGS: page fingerprints only (never overwrite data)
 # ==============================================================================
+
 def check_regulatory_watchdogs() -> Dict[str, str]:
     watch_urls = {
         "NOSBiH_Balanced_Users": "https://www.nosbih.ba/bs/dokumenti/registri/bilansirani-korisnici/",
@@ -352,12 +364,11 @@ def check_regulatory_watchdogs() -> Dict[str, str]:
             results[name] = f"SKIPPED ({type(e).__name__})"
     return results
 
+
 # ==============================================================================
 # MONTHLY (BHAS Official Release PDFs): Generation_Monthly.csv
 # URL pattern: https://bhas.gov.ba/data/Publikacije/Saopstenja/{YYYY}/ENE_01_{YYYY}_{MM:02d}_1_BS.pdf
 # ==============================================================================
-
-import zlib
 
 def _extract_pdf_text(pdf_bytes: bytes) -> str:
     """Extract plain text from a BHAS PDF using pypdf (if installed) or built-in zlib FlateDecode."""
@@ -375,7 +386,6 @@ def _extract_pdf_text(pdf_bytes: bytes) -> str:
         for wbits in (zlib.MAX_WBITS, -zlib.MAX_WBITS):
             try:
                 decomp = zlib.decompress(raw_stream, wbits).decode("latin1", errors="ignore")
-                # Extract text inside PDF parentheses (...) or hex/plain tokens
                 txt_parts = re.findall(r"\(([^()]*)\)", decomp)
                 if txt_parts:
                     chunks.append("".join(txt_parts))
@@ -459,7 +469,7 @@ def update_generation_monthly(dry_run: bool = False) -> Tuple[int, str]:
             for r in reader:
                 if len(r) >= 2 and r[0].strip().isdigit() and r.strip().isdigit():
                     yr, mo = int(r[0].strip()), int(r.strip())
-                    # If row had an unquoted comma in Source (like Dec 2025), rejoin extra cols safely
+                    # Safely extract columns 2..7 even if unquoted comma split Source
                     gross = r.strip() if len(r) > 2 else ""
                     hp = r.strip() if len(r) > 3 else ""
                     tp = r.strip() if len(r) > 4 else ""
@@ -469,7 +479,6 @@ def update_generation_monthly(dry_run: bool = False) -> Tuple[int, str]:
                     rows[(yr, mo)] = [str(yr), str(mo), gross, hp, tp, sp, src, nts]
 
     today = now_utc().date()
-    # Ensure all months from 2025-01 up to 2 months before today exist as candidate keys
     cur_y, cur_m = 2025, 1
     while (cur_y, cur_m) <= (today.year, today.month):
         if (cur_y, cur_m) not in rows:
@@ -481,7 +490,7 @@ def update_generation_monthly(dry_run: bool = False) -> Tuple[int, str]:
 
     updated_count = 0
     for (yr, mo), cur in sorted(rows.items()):
-        # Skip if all 4 numbers (Gross, Hydro_pct, Thermal_pct, SolarWind_pct) are already present
+        # Skip if all 4 numeric fields (Gross_GWh, Hydro_pct, Thermal_pct, SolarWind_pct) are already filled
         if cur and cur and cur and cur:
             continue
         res = fetch_bhas_month(yr, mo)
@@ -499,13 +508,13 @@ def update_generation_monthly(dry_run: bool = False) -> Tuple[int, str]:
             ]
             updated_count += 1
 
-    # Remove future empty placeholder months that BHAS hasn't published yet
+    # Keep only rows that have at least one data/source/note field populated
     final_rows = [
         v for k, v in sorted(rows.items())
         if v or v or v or v or v or v
     ]
 
-    if not dry_run and os.path.exists(GEN_CSV_PATH):
+    if not dry_run:
         with open(GEN_CSV_PATH, "w", encoding="utf-8", newline="") as f:
             w = csv.writer(f)
             w.writerow(["Year", "Month", "Gross_GWh", "Hydro_pct", "Thermal_pct", "SolarWind_pct", "Source", "Notes"])
@@ -517,9 +526,11 @@ def update_generation_monthly(dry_run: bool = False) -> Tuple[int, str]:
     )
     return updated_count, f"OK ({updated_count} months fetched from BHAS; {complete_2025}/12 of 2025 complete)"
 
+
 # ==============================================================================
 # CORE ENGINE
 # ==============================================================================
+
 def run_update(
     dry_run: bool = False,
     test_fx_spot: Optional[float] = None,
@@ -543,6 +554,7 @@ def run_update(
         "datasets": {},
         "changes_applied": 0,
     }
+
     pending: Dict[str, Tuple[Dict[str, str], str]] = {}
 
     def run_dataset(key: str, fn, src_tag: str) -> None:
@@ -573,7 +585,6 @@ def run_update(
         except Exception as e:
             status_report["datasets"]["bhas_generation_monthly"] = f"WARN: {e}"
 
-
     changelog: List[Dict[str, str]] = []
     today_iso = now_utc().date().isoformat()
     for r in rows:
@@ -600,19 +611,21 @@ def run_update(
     if not ok_post:
         raise RuntimeError(f"Post-update schema check failed: {msg_post}")
 
-    status_report["changes_applied"] = len(changelog)
+    status_report["changes_applied"] += len(changelog)
 
     if not dry_run:
         with open(CSV_PATH, "w", encoding="utf-8", newline="") as f:
             w = csv.DictWriter(f, fieldnames=fieldnames)
             w.writeheader()
             w.writerows(rows)
+
         exists = os.path.exists(CHANGELOG_PATH)
         with open(CHANGELOG_PATH, "a", encoding="utf-8", newline="") as f:
             w = csv.DictWriter(f, fieldnames=["Date", "Record_ID", "Column", "Old_Value", "New_Value", "Source"])
             if not exists:
                 w.writeheader()
             w.writerows(changelog)
+
         with open(STATUS_PATH, "w", encoding="utf-8") as f:
             json.dump(status_report, f, indent=2)
 
