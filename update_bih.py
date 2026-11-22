@@ -374,7 +374,8 @@ def load_flows_history() -> pd.DataFrame:
 
 def update_flows_history() -> dict:
     session = create_resilient_session(retries=2, backoff_factor=1.5)
-    resp = safe_get(session, f"{FLOWS_PAGE}?nocache={int(time.time())}", timeout_tuple=(10, 45))    resp.raise_for_status()
+    resp = safe_get(session, f"{FLOWS_PAGE}?nocache={int(time.time())}", timeout_tuple=(10, 45))
+    resp.raise_for_status()
     row = parse_flows_page(resp.text)
     row["Fetched_At"] = datetime.datetime.now(NOS_TZ).isoformat(timespec="minutes")
 
