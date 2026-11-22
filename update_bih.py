@@ -1216,6 +1216,12 @@ if __name__ == "__main__":
     nos_hist = load_nos_history()
     nos_day_df, nos_day_date = nos_day_for_workbook(nos_hist, dam_curve)
 
+    try:
+        flows_status = update_flows_history()
+    except Exception as e:
+        flows_status = {"flows_error": str(e)}
+        print(f"[FLOWS] FAILED: {e}")
+    nos_status = {**nos_status, **flows_status}
     sync_github_master_csv(dam_curve, fx_rates, wm_live, df_wm_pop, nos_status)
     out_xlsx = build_bih_intelligence_workbook(
         nos_day_df, nos_day_date, nos_status,
