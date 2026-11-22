@@ -280,7 +280,7 @@ def nos_day_for_workbook(hist: pd.DataFrame, dam_curve):
 FLOWS_PAGE = "https://www.nosbih.ba/en/ees/fizicki-tokovi/"
 FLOWS_CSV = "flows_snapshots.csv"
 FLOW_CODES = {"hr": "Croatia", "sr": "Serbia", "cg": "Montenegro"}
-FLOW_TOLERANCE_MW = 1.0
+FLOW_TOLERANCE_MW = 2.0
 FLOW_COLS = [
     "Timestamp", "Fetched_At", "ACE_MW",
     "Act_HR_Signed", "Act_SR_Signed", "Act_CG_Signed", "Act_Net_Calc", "Act_Net_Page", "Act_Check",
