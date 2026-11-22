@@ -5,7 +5,7 @@ on:
   schedule:
     # Runs every day at 05:00 UTC (06:00 CET / 07:00 CEST Europe/Sarajevo).
     # GitHub may delay scheduled runs by several minutes to an hour.
-    - cron: '0 * * * *'
+    - cron: '*/30 * * * *'
   workflow_dispatch:
 
 permissions:
