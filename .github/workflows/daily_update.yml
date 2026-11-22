@@ -29,8 +29,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install PDF parser for BHAS monthly electricity releases
-        run: python -m pip install --upgrade pip
-    pip install -r requirements.txt
+        run: python3 -m pip install --upgrade pip pypdf
 
       - name: Run BiH daily updater and schema gate
         run: python3 update_bih.py
