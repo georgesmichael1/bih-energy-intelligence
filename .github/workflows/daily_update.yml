@@ -1,10 +1,11 @@
 name: BiH Energy Daily Auto-Update
 
 on:
+
   schedule:
     # Runs every day at 05:00 UTC (06:00 CET / 07:00 CEST Europe/Sarajevo).
     # GitHub may delay scheduled runs by several minutes to an hour.
-    - cron: '0 5 * * *'
+    - cron: '0 * * * *'
   workflow_dispatch:
 
 permissions:
@@ -17,6 +18,8 @@ concurrency:
 jobs:
   update-bih-master-csv:
     runs-on: ubuntu-latest
+    env:
+      SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
     timeout-minutes: 15
 
     steps:
