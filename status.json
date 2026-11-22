@@ -1,5 +1,9 @@
 {
   "last_verified_date": "22 Nov 2026",
   "rows": 487,
-  "nos_error": "HTTPSConnectionPool(host='www.nosbih.ba', port=443): Read timed out."
+  "nos_date_source": "assumed_today",
+  "nos_fetched_at": "2026-11-22T20:29+01:00",
+  "nos_days_failed": [],
+  "nos_rows": 24,
+  "nos_latest_actual": "2026-11-22 20:00"
 }
