@@ -1,17 +1,4 @@
 {
-  "last_run_utc": "2026-11-22T09:11:51Z",
   "last_verified_date": "22 Nov 2026",
-  "row_count": 487,
-  "datasets": {
-    "fx_bam_usd": "SUCCESS",
-    "day_ahead_power": "SUCCESS",
-    "macro_imf": "WARN: IMF DataMapper unavailable (HTTP Error 404: Not Found); GDP stays unchanged",
-    "bhas_generation_monthly": "OK (6 months fetched from BHAS; 12/12 of 2025 complete)"
-  },
-  "changes_applied": 6,
-  "watchdogs": {
-    "NOSBiH_Balanced_Users": "OK (sha256:6244334c3af3)",
-    "DERK_Reports": "SKIPPED (HTTPError)",
-    "FERK_Decisions": "OK (sha256:4bde90bbebc2)"
-  }
+  "rows": 511
 }
