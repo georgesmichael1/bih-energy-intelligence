@@ -1,11 +1,8 @@
 name: BiH Energy Daily Auto-Update
 
 on:
-
   schedule:
-    # Runs every day at 05:00 UTC (06:00 CET / 07:00 CEST Europe/Sarajevo).
-    # GitHub may delay scheduled runs by several minutes to an hour.
-    - cron: '*/30 * * * *'
+    - cron: '*/30 * * * *'   # every 30 minutes, UTC
   workflow_dispatch:
 
 permissions:
@@ -31,63 +28,66 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install PDF parser for BHAS monthly electricity releases
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run BiH daily updater and schema gate
+      - name: Run BiH updater
         run: python3 update_bih.py
 
-      # Good data is saved first, even if one dataset failed.
-      - name: Commit and push updated CSVs, change log and status JSON
+      # Good data is saved first, even if a later check fails.
+      - name: Commit and push updated files
         run: |
           git config user.name "BiH Energy Auto-Updater"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          touch Generation_Monthly.csv change_log.csv status.json
-          git add bih_data.csv Generation_Monthly.csv change_log.csv status.json
+          for f in bih_data.csv Generation_Monthly.csv change_log.csv status.json nos_hourly.csv; do
+            [ -f "$f" ] && git add "$f"
+          done
           if git diff --staged --quiet; then
-            echo "No data changes today."
+            echo "No data changes this run."
           else
-            git commit -m "chore(data): daily auto-update $(date -u +'%Y-%m-%d')"
+            git commit -m "chore(data): auto-update $(date -u +'%Y-%m-%d %H:%M')"
             git pull --rebase --autostash origin main
             git push origin HEAD:main
           fi
 
-      # The updater catches per-dataset errors internally, so the job would
-      # otherwise stay green. This step turns any FAILED dataset into a red run.
-      - name: Fail the run if any dataset failed
+      # Turns NOS failures and dataset failures into a red run.
+      - name: Fail the run if NOS or any dataset failed
         run: |
           python3 - <<'PY'
           import json, sys
           with open("status.json", encoding="utf-8") as f:
-              status = json.load(f)
-          bad = {
-              k: v for k, v in status.get("datasets", {}).items()
-              if str(v).startswith("FAILED")
-          }
-          if bad:
-              print("Datasets that failed:")
-              for k, v in bad.items():
-                  print(f"  - {k}: {v}")
+              s = json.load(f)
+          problems = []
+          if s.get("nos_error"):
+              problems.append(f"NOS: {s['nos_error']}")
+          if s.get("nos_days_failed"):
+              problems.append(f"NOS days failed: {s['nos_days_failed']}")
+          for k, v in s.get("datasets", {}).items():
+              if str(v).startswith("FAILED"):
+                  problems.append(f"{k}: {v}")
+          if s.get("nos_date_source") == "assumed_today":
+              print("::warning::NOS date taken from the current day; the page has no date input.")
+          if problems:
+              for p in problems:
+                  print(f"::error::{p}")
               sys.exit(1)
-          print("All datasets OK.")
+          print("All checks OK.")
           PY
 
       - name: Send failure alert email
         if: failure() && env.SMTP_SERVER != ''
-        env:
-          SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: ${{ secrets.SMTP_SERVER }}
           server_port: ${{ secrets.SMTP_PORT }}
           username: ${{ secrets.SMTP_USERNAME }}
           password: ${{ secrets.SMTP_PASSWORD }}
-          subject: "[ALERT] BiH Energy daily auto-update failed or had a failed dataset"
+          subject: "[ALERT] BiH Energy auto-update failed"
           to: "george.michael@elsewedy.com"
           from: "BiH Energy Auto-Updater <george.michael@elsewedy.com>"
           body: |
-            The daily BiH Energy update failed, or one dataset failed inside it.
+            The BiH Energy update failed.
             Repository: ${{ github.repository }}
             Run URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
