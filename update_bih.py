@@ -2,7 +2,10 @@ import io
 import os
 import re
 import json
+import time
 import datetime
+from zoneinfo import ZoneInfo
+
 import requests as std_requests
 from requests.adapters import HTTPAdapter
 from urllib3.util import Retry
@@ -86,131 +89,212 @@ def parse_numeric_cell(val):
         return None
 
 
-def fetch_seepex_hupx_dam_curve():
-    session = create_resilient_session(retries=2, use_cffi=False)
-    default_curve = [
-        82.40, 76.10, 71.50, 69.80, 73.20, 88.50,
-        112.30, 134.60, 141.20, 126.80, 104.50, 91.20,
-        84.60, 86.10, 98.40, 118.90, 148.50, 168.20,
-        174.60, 159.30, 136.40, 114.80, 99.20, 87.60,
-    ]
+# =============================================================================
+# NOS BiH hourly dispatch: live fetch, 30-day history, no hardcoded values
+# =============================================================================
+
+NOS_PAGE = "https://www.nosbih.ba/en/ees/graf-potrosnje/"
+NOS_HOURLY_CSV = "nos_hourly.csv"
+NOS_TZ = ZoneInfo("Europe/Sarajevo")
+HISTORY_DAYS = 30
+
+# Fill this in once the page's date selector is known, e.g. "https://www.nosbih.ba/...?date={date}".
+# While it is None, each run stores the day the page shows, so history builds one day per run.
+NOS_DAY_URL_TEMPLATE = None
+
+NOS_VALUE_COLS = [
+    "Planned_Production_MW",
+    "Actual_Production_MW",
+    "Planned_Consumption_MW",
+    "Actual_Consumption_MW",
+]
+NOS_COLS = ["Date", "Hour"] + NOS_VALUE_COLS + ["Fetched_At"]
+
+
+class NosError(RuntimeError):
+    pass
+
+
+def _sarajevo_today() -> datetime.date:
+    return datetime.datetime.now(NOS_TZ).date()
+
+
+def _num(s) -> float:
+    # Blank or pending cells become NaN (missing), never 0.
+    s = (s or "").strip().replace(",", "")
     try:
-        r = session.get("https://api.energy-charts.info/price?bzn=RS", timeout=(10, 20)).json()
-        prices = r.get("price", [])
-        valid_p = [float(x) for x in prices if x is not None]
-        if len(valid_p) >= 24:
-            return [round(x, 2) for x in valid_p[-24:]]
-    except Exception:
-        pass
-    return default_curve
+        return float(s)
+    except ValueError:
+        return float("nan")
 
 
-def fetch_nosbih_load_and_dam_table():
-    session = create_resilient_session(retries=2, backoff_factor=1.5)
-    urls = (
-        "https://www.nosbih.ba/en/ees/graf-potrosnje/",
-        "https://www.nosbih.ba/bs/ees/graf-potrosnje/",
-    )
-    dam_curve_eur = fetch_seepex_hupx_dam_curve()
-    verified_nosbih_snapshot = (
-        (1, 1413.0, 1687.30, 1086.0, 1110.96),
-        (2, 1311.0, 1556.98, 972.0, 911.19),
-        (3, 1288.0, 1520.14, 942.0, 872.19),
-        (4, 1283.0, 1468.25, 934.0, 812.87),
-        (5, 1305.0, 1442.77, 958.0, 790.59),
-        (6, 1383.0, 1481.76, 1041.0, 889.82),
-        (7, 1671.0, 1714.11, 1304.0, 1079.99),
-        (8, 1820.0, 1956.98, 1531.0, 1310.19),
-        (9, 1855.0, 1992.42, 1613.0, 1456.77),
-        (10, 1826.0, 2109.65, 1614.0, 1550.43),
-        (11, 1692.0, 2036.88, 1542.0, 1423.58),
-        (12, 1638.0, 1989.45, 1501.0, 1431.41),
-        (13, 1651.0, 1971.96, 1504.0, 1439.61),
-        (14, 1738.0, 2046.12, 1568.0, 1432.55),
-        (15, 1848.0, 2113.91, 1609.0, 1571.03),
-        (16, 2080.0, None, 1644.0, None),
-        (17, 2139.0, None, 1727.0, None),
-        (18, 2182.0, None, 1768.0, None),
-        (19, 2165.0, None, 1724.0, None),
-        (20, 2007.0, None, 1700.0, None),
-        (21, 1915.0, None, 1607.0, None),
-        (22, 1807.0, None, 1528.0, None),
-        (23, 1668.0, None, 1385.0, None),
-        (24, 1513.0, None, 1225.0, None),
-    )
+def parse_nos_table(html: str, day: datetime.date) -> pd.DataFrame:
+    soup = BeautifulSoup(html, "lxml")
+    table = soup.find("table", id="productionTable")
+    if table is None:
+        raise NosError("productionTable not found on NOS page")
 
     rows = []
-    is_live = False
-
-    for url in urls:
-        try:
-            response = safe_get(session, url, timeout_tuple=(10, 45))
-            if response.status_code == 200:
-                soup = BeautifulSoup(response.text, "lxml")
-                for table in soup.find_all("table"):
-                    candidate_rows = []
-                    for tr in table.find_all("tr"):
-                        cells = tr.find_all("td")
-                        if len(cells) >= 5:
-                            c_time, c_p_prod, c_a_prod, c_p_cons, c_a_cons = (
-                                cell.get_text(strip=True) for cell in cells[:5]
-                            )
-                            if ":" not in c_time:
-                                continue
-                            raw_hr = c_time.split(":")[0].strip()
-                            try:
-                                h_num = int(raw_hr)
-                            except ValueError:
-                                continue
-                            if h_num == 0:
-                                h_num = 24
-
-                            p_prod_val = parse_numeric_cell(c_p_prod)
-                            a_prod_val = parse_numeric_cell(c_a_prod)
-                            p_cons_val = parse_numeric_cell(c_p_cons)
-                            a_cons_val = parse_numeric_cell(c_a_cons)
-
-                            idx = len(candidate_rows)
-                            dam_val = dam_curve_eur[idx] if idx < 24 else 87.60
-                            is_peak_tou = 1 if ((7 <= h_num <= 13) or (16 <= h_num <= 22)) else 0
-
-                            candidate_rows.append({
-                                "Hour_Index": h_num,
-                                "Planned_Production_MW": p_prod_val,
-                                "Actual_Production_MW": a_prod_val,
-                                "Planned_Consumption_MW": p_cons_val,
-                                "Actual_Consumption_MW": a_cons_val,
-                                "DAM_Price_EUR_MWh": round(dam_val, 2),
-                                "Peak_ToU_Flag": is_peak_tou,
-                            })
-
-                    valid_p_prod = sum(1 for r in candidate_rows if r["Planned_Production_MW"] is not None)
-                    valid_p_cons = sum(1 for r in candidate_rows if r["Planned_Consumption_MW"] is not None)
-                    if len(candidate_rows) == 24 and valid_p_prod == 24 and valid_p_cons == 24:
-                        rows = candidate_rows
-                        is_live = True
-                        break
-            if is_live:
-                break
-        except Exception:
+    for tr in table.select("tbody tr"):
+        tds = tr.find_all("td")
+        if len(tds) < 5:
             continue
+        t = tds[0].get_text(strip=True)
+        if ":" not in t:
+            continue
+        hour = int(t.split(":")[0])
+        hour = 24 if hour == 0 else hour        # "00:00" is hour 24
+        rows.append({
+            "Date": day,
+            "Hour": hour,
+            "Planned_Production_MW": _num(tds[1].get_text()),
+            "Actual_Production_MW": _num(tds[2].get_text()),
+            "Planned_Consumption_MW": _num(tds[3].get_text()),
+            "Actual_Consumption_MW": _num(tds[4].get_text()),
+        })
 
     if not rows:
-        for idx, (h_num, p_prod, a_prod, p_cons, a_cons) in enumerate(verified_nosbih_snapshot):
-            is_peak_tou = 1 if ((7 <= h_num <= 13) or (16 <= h_num <= 22)) else 0
-            rows.append({
-                "Hour_Index": h_num,
-                "Planned_Production_MW": p_prod,
-                "Actual_Production_MW": a_prod,
-                "Planned_Consumption_MW": p_cons,
-                "Actual_Consumption_MW": a_cons,
-                "DAM_Price_EUR_MWh": round(dam_curve_eur[idx], 2),
-                "Peak_ToU_Flag": is_peak_tou,
-            })
+        raise NosError("productionTable has no data rows")
+    return pd.DataFrame(rows)
 
-    df = pd.DataFrame(rows)
-    df["Status_Label"] = "VERIFIED"
-    return df
+
+def _page_date(html: str, fallback: datetime.date):
+    # Use the date the page says it is showing, if a date input is present.
+    soup = BeautifulSoup(html, "lxml")
+    for inp in soup.find_all("input"):
+        key = f"{inp.get('id', '')} {inp.get('name', '')}".lower()
+        if "date" not in key:
+            continue
+        value = (inp.get("value") or "").strip()
+        for fmt in ("%Y-%m-%d", "%d.%m.%Y", "%d/%m/%Y", "%d-%m-%Y"):
+            try:
+                return datetime.datetime.strptime(value, fmt).date(), "page"
+            except ValueError:
+                pass
+    return fallback, "assumed_today"
+
+
+def fetch_nos_page(session, url: str = NOS_PAGE) -> str:
+    resp = safe_get(session, url, timeout_tuple=(10, 45))
+    resp.raise_for_status()
+    return resp.text
+
+
+def fetch_nos_day(session, day: datetime.date = None):
+    # Returns (DataFrame, source). Raises NosError or requests errors on failure.
+    if NOS_DAY_URL_TEMPLATE and day is not None:
+        html = fetch_nos_page(session, NOS_DAY_URL_TEMPLATE.format(date=day.isoformat()))
+        return parse_nos_table(html, day), "template"
+
+    html = fetch_nos_page(session)
+    shown, source = _page_date(html, fallback=_sarajevo_today())
+    return parse_nos_table(html, shown), source
+
+
+def load_nos_history() -> pd.DataFrame:
+    if os.path.exists(NOS_HOURLY_CSV):
+        df = pd.read_csv(NOS_HOURLY_CSV)
+        if len(df):
+            df["Date"] = pd.to_datetime(df["Date"]).dt.date
+            return df
+    return pd.DataFrame(columns=NOS_COLS)
+
+
+def merge_nos(hist: pd.DataFrame, new: pd.DataFrame) -> pd.DataFrame:
+    # A fresh non-missing value replaces the stored one.
+    # A blank in a later fetch never erases a value already stored.
+    if hist.empty:
+        merged = new[NOS_COLS].copy()
+    else:
+        m = hist.merge(new, on=["Date", "Hour"], how="outer", suffixes=("_old", "_new"))
+        for c in NOS_VALUE_COLS:
+            m[c] = m[c + "_new"].where(m[c + "_new"].notna(), m[c + "_old"])
+        m["Fetched_At"] = m["Fetched_At_new"].fillna(m["Fetched_At_old"])
+        merged = m[NOS_COLS]
+
+    cutoff = _sarajevo_today() - datetime.timedelta(days=HISTORY_DAYS - 1)
+    merged = merged[merged["Date"] >= cutoff]
+    return merged.sort_values(["Date", "Hour"]).reset_index(drop=True)
+
+
+def update_nos_history() -> dict:
+    # Fetch the day the page shows, optionally backfill the 30-day window, save, return status.
+    hist = load_nos_history()
+    session = create_resilient_session(retries=2, backoff_factor=1.5)
+    stamp = datetime.datetime.now(NOS_TZ).isoformat(timespec="minutes")
+    failed = []
+
+    # 1. Always fetch what the page shows right now.
+    today_df, date_source = fetch_nos_day(session)
+    today_df["Fetched_At"] = stamp
+    hist = merge_nos(hist, today_df)
+
+    # 2. Backfill only if the date URL pattern is known.
+    if NOS_DAY_URL_TEMPLATE:
+        today = _sarajevo_today()
+        have = set(hist["Date"]) if len(hist) else set()
+        for i in range(HISTORY_DAYS):
+            d = today - datetime.timedelta(days=i)
+            if i > 1 and d in have:
+                continue                          # refetch today and yesterday; older days only if missing
+            try:
+                df, _ = fetch_nos_day(session, d)
+                df["Fetched_At"] = stamp
+                hist = merge_nos(hist, df)
+            except Exception as e:
+                failed.append(f"{d}: {e}")
+            time.sleep(1)                         # be polite to the server
+
+    hist.to_csv(NOS_HOURLY_CSV, index=False)
+
+    with_actual = hist.dropna(subset=["Actual_Production_MW"])
+    latest_actual = None
+    if len(with_actual):
+        last = with_actual.sort_values(["Date", "Hour"]).iloc[-1]
+        latest_actual = f"{last['Date']} {int(last['Hour']):02d}:00"
+
+    return {
+        "nos_date_source": date_source,
+        "nos_fetched_at": stamp,
+        "nos_days_failed": failed,
+        "nos_rows": int(len(hist)),
+        "nos_latest_actual": latest_actual,
+    }
+
+
+def nos_day_for_workbook(hist: pd.DataFrame, dam_curve):
+    # Returns (24-row DataFrame for the most recent day in history, that date or None).
+    day = pd.DataFrame({"Hour_Index": range(1, 25)})
+    latest = None
+    if len(hist):
+        latest = max(hist["Date"])
+        src = hist[hist["Date"] == latest].rename(columns={"Hour": "Hour_Index"})
+        day = day.merge(src[["Hour_Index"] + NOS_VALUE_COLS], on="Hour_Index", how="left")
+    else:
+        for c in NOS_VALUE_COLS:
+            day[c] = float("nan")
+    day["DAM_Price_EUR_MWh"] = list(dam_curve[:24]) if dam_curve else float("nan")
+    day["Peak_ToU_Flag"] = day["Hour_Index"].apply(
+        lambda h: 1 if ((7 <= h <= 13) or (16 <= h <= 22)) else 0
+    )
+    return day, latest
+
+
+# =============================================================================
+# DAM reference curve (energy-charts.info). Returns None on failure, never a typed-in curve.
+# =============================================================================
+
+def fetch_seepex_hupx_dam_curve():
+    session = create_resilient_session(retries=2, use_cffi=False)
+    try:
+        r = session.get("https://api.energy-charts.info/price?bzn=RS", timeout=(10, 20)).json()
+        prices = [float(x) for x in r.get("price", []) if x is not None]
+        if len(prices) >= 24:
+            return [round(x, 2) for x in prices[-24:]]
+        print("[DAM] energy-charts returned fewer than 24 prices")
+    except Exception as e:
+        print(f"[DAM] fetch failed: {e}")
+    return None
 
 
 def fetch_nosbih_balancing_prices():
@@ -515,10 +599,11 @@ def fetch_worldbank_bih_macro(start_year=2020, end_year=2025):
 
 
 def sync_github_master_csv(
-    nos_df,
+    dam_curve,
     fx_data,
     wm_live_pop,
     wm_pop_df,
+    nos_status,
     csv_path="bih_data.csv",
     status_path="status.json",
 ):
@@ -527,7 +612,6 @@ def sync_github_master_csv(
         return
 
     df = pd.read_csv(csv_path)
-    today_iso = datetime.date.today().isoformat()
     today_disp = datetime.date.today().strftime("%d %b %Y")
 
     # 1. Update BIH-0092 (Population: Worldometer Live + 2026 Mid-Yr + BHAS)
@@ -550,74 +634,40 @@ def sync_github_master_csv(
         f"Sell: {fx_data['USD_BAM_Sell']:.4f} BAM/USD | Fixed Peg: 1.95583 BAM/EUR"
     )
 
-    # 3. Update BIH-0487 (Day-Ahead Spot & Hourly ToU Summary)
-    dam_avg = round(float(nos_df["DAM_Price_EUR_MWh"].mean()), 2)
-    dam_peak = round(float(nos_df["DAM_Price_EUR_MWh"].max()), 2)
-    dam_min = round(float(nos_df["DAM_Price_EUR_MWh"].min()), 2)
-    m_dam = df["Record_ID"] == "BIH-0487"
-    df.loc[m_dam, "Primary_Value"] = dam_avg
-    df.loc[m_dam, "Secondary_Value"] = (
-        f"Peak: {dam_peak:.2f} EUR/MWh | Trough: {dam_min:.2f} EUR/MWh | ToU VT: 173.75 BAM/MWh | MT: 133.50 BAM/MWh"
-    )
-    df.loc[m_dam, "Tariff_Price_Rate_Value"] = f"{dam_avg:.2f} EUR/MWh ({dam_avg * 1.95583:.2f} BAM/MWh)"
+    # 3. Update BIH-0487 from the DAM curve only when it was fetched. Otherwise keep the previous value.
+    # ToU tariff levels are computed from the same inputs the workbook uses (MT 115 BAM/MWh, VT +35%, +18.5 fee).
+    tou_mt_bam = round(115.0 + 18.5, 2)
+    tou_vt_bam = round(115.0 * 1.35 + 18.5, 2)
+    if dam_curve:
+        dam_avg = round(sum(dam_curve) / len(dam_curve), 2)
+        dam_peak = round(max(dam_curve), 2)
+        dam_min = round(min(dam_curve), 2)
+        m_dam = df["Record_ID"] == "BIH-0487"
+        df.loc[m_dam, "Primary_Value"] = dam_avg
+        df.loc[m_dam, "Secondary_Value"] = (
+            f"Peak: {dam_peak:.2f} EUR/MWh | Trough: {dam_min:.2f} EUR/MWh | "
+            f"ToU VT: {tou_vt_bam:.2f} BAM/MWh | MT: {tou_mt_bam:.2f} BAM/MWh"
+        )
+        df.loc[m_dam, "Tariff_Price_Rate_Value"] = f"{dam_avg:.2f} EUR/MWh ({dam_avg * 1.95583:.2f} BAM/MWh)"
+    else:
+        print("   [NOTICE] DAM curve unavailable; BIH-0487 left unchanged.")
 
-    # 4. Append BIH-0488..BIH-0511 (24-Hour NOS BiH Live Dispatch + DAM + ToU)
+    # 4. Dispatch rows (BIH-0488 onward) are no longer written here. They are stored in nos_hourly.csv.
+    # Any old dispatch rows are removed from bih_data.csv.
     df = df[df["Record_ID"] <= "BIH-0487"].copy()
-    new_rows = []
-    for _, row in nos_df.iterrows():
-        hr = int(row["Hour_Index"])
-        p_gen = float(row["Planned_Production_MW"] or 0.0)
-        a_gen = row["Actual_Production_MW"]
-        p_con = float(row["Planned_Consumption_MW"] or 0.0)
-        a_con = row["Actual_Consumption_MW"]
-        dam_eur = float(row["DAM_Price_EUR_MWh"] or 0.0)
-        is_vt = int(row["Peak_ToU_Flag"])
+    df.to_csv(csv_path, index=False, encoding="utf-8")
 
-        rec_id = f"BIH-{487 + hr:04d}"
-        tou_bam = round(115.0 * (1.0 + 0.35 * is_vt) + 18.5, 2)
-        tou_eur = round(tou_bam / 1.95583, 2)
-        a_gen_s = f"{float(a_gen):.2f}" if pd.notna(a_gen) else "Pending"
-        a_con_s = f"{float(a_con):.2f}" if pd.notna(a_con) else "Pending"
-        net_exp = p_gen - p_con
-
-        row_dict = {col: "" for col in df.columns}
-        row_dict.update({
-            "Record_ID": rec_id,
-            "Source_Workbook": "NOS_BiH_Live_Pipeline",
-            "Source_Sheet": "NOS_BiH_Dispatch_DAM",
-            "Domain_Category": "10. NOS BiH 24-Hour Live Dispatch, DAM & ToU Tariffs",
-            "Subcategory_Group": "Table 1: 24-Hour Generation, Consumption, DAM & ToU Curve",
-            "Entity_Project_Indicator_Name": f"Hour {hr:02d}:00 Dispatch & Market Clearing",
-            "Location_Region_Entity": "Bosnia and Herzegovina (NOS BiH Control Area)",
-            "Technology_Role_Type": "VT Peak Tariff" if is_vt == 1 else "MT Off-Peak Tariff",
-            "Status_Stage_Tier": "VERIFIED",
-            "Period_Year": today_iso,
-            "Primary_Metric_Label": "Planned Generation (MW)",
-            "Primary_Value": p_gen,
-            "Primary_Unit": "MW",
-            "Secondary_Metric_Label": "Dispatch & Load Breakdown",
-            "Secondary_Value": f"PlanGen: {p_gen:.1f} | ActGen: {a_gen_s} | PlanCons: {p_con:.1f} | ActCons: {a_con_s} | NetExp: {net_exp:.1f}",
-            "Tariff_Price_Rate_Label": "DAM Spot & Hourly ToU Tariff",
-            "Tariff_Price_Rate_Value": f"DAM: {dam_eur:.2f} EUR/MWh | ToU: {tou_bam:.2f} BAM/MWh ({tou_eur:.2f} EUR/MWh)",
-            "Counterparty_Owner_Offtaker": "NOS BiH / SEEPEX-CROPEX",
-            "Technical_Commercial_Notes_Details": f"Planned Net Export Balance: {net_exp:+.1f} MW",
-            "Verification_Status_Source_URL": "https://www.nosbih.ba/en/ees/graf-potrosnje/",
-            "EndUser_Tariff_EUR_MWh": dam_eur,
-            "Household_Tariff_EUR_MWh": tou_eur,
-        })
-        new_rows.append(row_dict)
-
-    df_out = pd.concat([df, pd.DataFrame(new_rows)], ignore_index=True)
-    df_out.to_csv(csv_path, index=False, encoding="utf-8")
-
+    status = {"last_verified_date": today_disp, "rows": len(df), **nos_status}
     with open(status_path, "w", encoding="utf-8") as f:
-        json.dump({"last_verified_date": today_disp, "rows": len(df_out)}, f, indent=2)
+        json.dump(status, f, indent=2)
 
-    print(f"   [SUCCESS] Updated {csv_path} ({len(df_out)} rows) and {status_path}.")
+    print(f"   [SUCCESS] Updated {csv_path} ({len(df)} rows) and {status_path}.")
 
 
 def build_bih_intelligence_workbook(
-    nos_df,
+    nos_day_df,
+    nos_day_date,
+    nos_status,
     bal_df,
     fx_data,
     bhas_kpis,
@@ -644,6 +694,15 @@ def build_bih_intelligence_workbook(
         bottom=Side(style="thin", color="D9D9D9"),
     )
 
+    def _v(x):
+        # Missing values are written as empty cells, never as NaN.
+        if x is None:
+            return None
+        try:
+            return None if pd.isna(x) else x
+        except (TypeError, ValueError):
+            return x
+
     def add_insight_block(ws, insight, benchmark, action, source):
         ws.cell(1, 1, "INSIGHT BLOCK").font = f_banner
         ws.cell(1, 1).fill = fill_banner
@@ -659,15 +718,25 @@ def build_bih_intelligence_workbook(
             ws.cell(r, 1).font = f_bold
             ws.cell(r, 2).font = f_data
 
-    # TAB 1: NOS_BiH_Dispatch_DAM
+    # TAB 1: NOS_BiH_Dispatch_DAM (latest day in nos_hourly.csv, computed from data)
     ws1 = wb.active
     ws1.title = "NOS_BiH_Dispatch_DAM"
+
+    plan_gen = nos_day_df["Planned_Production_MW"].sum(skipna=True)
+    plan_cons = nos_day_df["Planned_Consumption_MW"].sum(skipna=True)
+    net_plan = plan_gen - plan_cons
+    dam_series = nos_day_df["DAM_Price_EUR_MWh"].dropna()
+    dam_peak_txt = f"{dam_series.max():.2f} EUR/MWh" if len(dam_series) else "unavailable"
+    day_txt = nos_day_date.isoformat() if nos_day_date else "no data yet"
+
     add_insight_block(
         ws1,
-        "NOS BiH planned daily generation is 41,998 MWh vs planned consumption of 34,923 MWh (+7,075 MWh net export surplus); DAM peaks at 174.60 EUR/MWh.",
+        f"NOS BiH planned generation for {day_txt} is {plan_gen:,.0f} MWh vs planned consumption of {plan_cons:,.0f} MWh "
+        f"({net_plan:+,.0f} MWh net); DAM peaks at {dam_peak_txt}.",
         "ENTSO-E BiH Control Area (10YBA-JPCC-----B) & CROPEX/SEEPEX Coupled Spot Benchmark.",
-        "Charge BESS during 11:00-15:00 solar trough and discharge into 17:00-21:00 peak load.",
-        "NOS BiH Live Dispatch Table (https://www.nosbih.ba/en/ees/graf-potrosnje/) - VERIFIED",
+        "Charge BESS during the midday solar trough and discharge into the evening peak load.",
+        f"NOS BiH Graph Consumption page ({nos_status.get('nos_date_source', 'unknown')}), fetched "
+        f"{nos_status.get('nos_fetched_at', 'unknown')}. DAM reference: energy-charts.info (RS zone).",
     )
 
     inputs_t1 = (
@@ -712,19 +781,19 @@ def build_bih_intelligence_workbook(
 
     ws1.freeze_panes = "A15"
     start_r1 = 15
-    num_rows1 = len(nos_df)
+    num_rows1 = len(nos_day_df)
     tot_r1 = start_r1 + num_rows1
 
-    for i, row in nos_df.iterrows():
+    for i, row in nos_day_df.iterrows():
         r_idx = start_r1 + i
         ws1.cell(r_idx, 1, int(row["Hour_Index"])).number_format = "0"
-        ws1.cell(r_idx, 2, row["Planned_Production_MW"]).number_format = "#,##0.00"
-        ws1.cell(r_idx, 3, row["Actual_Production_MW"]).number_format = "#,##0.00"
-        ws1.cell(r_idx, 4, row["Planned_Consumption_MW"]).number_format = "#,##0.00"
-        ws1.cell(r_idx, 5, row["Actual_Consumption_MW"]).number_format = "#,##0.00"
+        ws1.cell(r_idx, 2, _v(row["Planned_Production_MW"])).number_format = "#,##0.00"
+        ws1.cell(r_idx, 3, _v(row["Actual_Production_MW"])).number_format = "#,##0.00"
+        ws1.cell(r_idx, 4, _v(row["Planned_Consumption_MW"])).number_format = "#,##0.00"
+        ws1.cell(r_idx, 5, _v(row["Actual_Consumption_MW"])).number_format = "#,##0.00"
         ws1.cell(r_idx, 6, f"=B{r_idx}-D{r_idx}").number_format = "#,##0.00"
         ws1.cell(r_idx, 7, f"=IF(AND(ISNUMBER(C{r_idx}),ISNUMBER(E{r_idx})),C{r_idx}-E{r_idx},0)").number_format = "#,##0.00"
-        ws1.cell(r_idx, 8, row["DAM_Price_EUR_MWh"]).number_format = "#,##0.00"
+        ws1.cell(r_idx, 8, _v(row["DAM_Price_EUR_MWh"])).number_format = "#,##0.00"
         ws1.cell(r_idx, 9, f"=H{r_idx}*$B$7").number_format = "#,##0.00"
         ws1.cell(r_idx, 10, int(row["Peak_ToU_Flag"])).number_format = "0"
         ws1.cell(r_idx, 11, f"=$B$9*(1+J{r_idx}*$B$10)+$B$11").number_format = "#,##0.00"
@@ -985,7 +1054,7 @@ def build_bih_intelligence_workbook(
         c.fill = fill_navy
     ws5.freeze_panes = "A9"
     sources_list = (
-        ("Hourly Dispatch Table (24h Prod & Cons MW)", "https://www.nosbih.ba/en/ees/graf-potrosnje/", "NOS BiH", datetime.date.today().isoformat(), "EES -> Graph Consumption HTML Table", "VERIFIED"),
+        ("Hourly Dispatch Table (24h Prod & Cons MW)", NOS_PAGE, "NOS BiH", datetime.date.today().isoformat(), "Graph Consumption page, productionTable", "LIVE"),
         ("FCR, aFRR & mFRR Balancing Energy Prices", "https://www.nosbih.ba/files/balansno/izvjestaji/mjeseci/202508-en-balansno-trziste-izvjestaj.pdf", "NOS BiH", "2025-09-15", "Page 1, Table: Activated balancing energy", "VERIFIED"),
         ("SERC Statutory Price Caps (aFRR & mFRR)", "https://www.nosbih.ba/files/balansno/izvjestaji/godine/2024-en-balansno-trziste-izvjestaj.pdf", "NOS BiH / SERC", "2025-03-01", "Page 4, Section: Ancillary services", "VERIFIED"),
         ("CBBH Daily FX List (USD/BAM & EUR/BAM Peg)", "https://cbbh.ba/CurrencyExchange/", "Central Bank of BiH (CBBH)", "2026-11-21", "Daily Exchange Rates List No. 230", "VERIFIED"),
@@ -1015,7 +1084,6 @@ if __name__ == "__main__":
     print("BOSNIA & HERZEGOVINA FULL MASTER PIPELINE (update_bih.py)")
     print("=" * 78)
 
-    df_nos = fetch_nosbih_load_and_dam_table()
     df_bal = fetch_nosbih_balancing_prices()
     derk_pdfs = discover_derk_pdfs()
     fx_rates = fetch_cbbh_fx_rates()
@@ -1023,8 +1091,19 @@ if __name__ == "__main__":
     bhas_data = fetch_bhas_headline_kpis()
     wb_macro = fetch_worldbank_bih_macro()
 
-    sync_github_master_csv(df_nos, fx_rates, wm_live, df_wm_pop)
+    try:
+        nos_status = update_nos_history()
+    except Exception as e:
+        nos_status = {"nos_error": str(e)}
+        print(f"[NOS] FAILED: {e}")
+
+    dam_curve = fetch_seepex_hupx_dam_curve()
+    nos_hist = load_nos_history()
+    nos_day_df, nos_day_date = nos_day_for_workbook(nos_hist, dam_curve)
+
+    sync_github_master_csv(dam_curve, fx_rates, wm_live, df_wm_pop, nos_status)
     out_xlsx = build_bih_intelligence_workbook(
-        df_nos, df_bal, fx_rates, bhas_data, wb_macro, wm_live, df_wm_pop
+        nos_day_df, nos_day_date, nos_status,
+        df_bal, fx_rates, bhas_data, wb_macro, wm_live, df_wm_pop,
     )
-    print(f"[DONE] Saved {out_xlsx} and synced bih_data.csv + status.json")
+    print(f"[DONE] Saved {out_xlsx}, synced bih_data.csv + status.json, updated {NOS_HOURLY_CSV}")
