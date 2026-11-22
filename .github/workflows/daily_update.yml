@@ -62,6 +62,10 @@ jobs:
           problems = []
           if s.get("nos_error"):
               problems.append(f"NOS: {s['nos_error']}")
+          if s.get("flows_error"):
+              problems.append(f"FLOWS: {s['flows_error']}")
+          if s.get("flows_checks_ok") is False:
+              print("::warning::Cross-border totals do not add up; check the flows parser.")
           if s.get("nos_days_failed"):
               problems.append(f"NOS days failed: {s['nos_days_failed']}")
           for k, v in s.get("datasets", {}).items():
