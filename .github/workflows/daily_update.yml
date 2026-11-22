@@ -18,6 +18,7 @@ jobs:
   update-bih-master-csv:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -27,21 +28,25 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Install PDF parser for BHAS monthly electricity releases
+        run: python3 -m pip install --upgrade pip pypdf
+
       - name: Run BiH daily updater and schema gate
         run: python3 update_bih.py
 
       # Good data is saved first, even if one dataset failed.
-      - name: Commit and push updated CSV, change log and status JSON
+      - name: Commit and push updated CSVs, change log and status JSON
         run: |
           git config user.name "BiH Energy Auto-Updater"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          touch Generation_Monthly.csv change_log.csv status.json
           git add bih_data.csv Generation_Monthly.csv change_log.csv status.json
           if git diff --staged --quiet; then
             echo "No data changes today."
           else
             git commit -m "chore(data): daily auto-update $(date -u +'%Y-%m-%d')"
-            git pull --rebase
-            git push
+            git pull --rebase --autostash origin main
+            git push origin HEAD:main
           fi
 
       # The updater catches per-dataset errors internally, so the job would
@@ -50,9 +55,12 @@ jobs:
         run: |
           python3 - <<'PY'
           import json, sys
-          status = json.load(open("status.json", encoding="utf-8"))
-          bad = {k: v for k, v in status.get("datasets", {}).items()
-                 if str(v).startswith("FAILED")}
+          with open("status.json", encoding="utf-8") as f:
+              status = json.load(f)
+          bad = {
+              k: v for k, v in status.get("datasets", {}).items()
+              if str(v).startswith("FAILED")
+          }
           if bad:
               print("Datasets that failed:")
               for k, v in bad.items():
@@ -62,7 +70,9 @@ jobs:
           PY
 
       - name: Send failure alert email
-        if: failure()
+        if: failure() && env.SMTP_SERVER != ''
+        env:
+          SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: ${{ secrets.SMTP_SERVER }}
