@@ -267,7 +267,134 @@ def nos_day_for_workbook(hist: pd.DataFrame, dam_curve):
     )
     return day, latest
 
+# =============================================================================
+# CROSS-BORDER EXCHANGE (NOSBiH "Cross-border exchange" page)
+# Values are in the page HTML. Direction comes from the page's own CSS:
+# the arrow group with display: inline is the one shown.
+# Sign: export from BiH = positive, import = negative.
+# Check: signed border flows must add up to the page's summary value.
+# Uses from earlier in update_bih.py: re, os, datetime, pd, BeautifulSoup,
+# NosError, NOS_TZ, HISTORY_DAYS, create_resilient_session, safe_get, _sarajevo_today.
+# =============================================================================
 
+FLOWS_PAGE = "https://www.nosbih.ba/en/ees/fizicki-tokovi/"
+FLOWS_CSV = "flows_snapshots.csv"
+FLOW_CODES = {"hr": "Croatia", "sr": "Serbia", "cg": "Montenegro"}
+FLOW_TOLERANCE_MW = 1.0
+FLOW_COLS = [
+    "Timestamp", "Fetched_At", "ACE_MW",
+    "Act_HR_Signed", "Act_SR_Signed", "Act_CG_Signed", "Act_Net_Calc", "Act_Net_Page", "Act_Check",
+    "Plan_HR_Signed", "Plan_SR_Signed", "Plan_CG_Signed", "Plan_Net_Calc", "Plan_Net_Page", "Plan_Check",
+]
+
+
+def _flow_num(text):
+    if text is None:
+        return None
+    m = re.search(r"-?\d+(?:\.\d+)?", text)
+    return float(m.group(0)) if m else None
+
+
+def _flow_visible_arrows(svg):
+    # Returns e.g. {"hr": "out", "sr": "in", "cg": "in"} from the arrow rules the page shows.
+    style = svg.find("style")
+    css = style.get_text() if style else ""
+    shown = {}
+    for selectors, body in re.findall(r"([^{}]+)\{([^{}]*)\}", css):
+        if not re.search(r"display\s*:\s*inline", body):
+            continue
+        for sel in selectors.split(","):
+            m = re.search(r"#arrow-[a-z]+-([a-z]{2})-\d{2}-(in|out)", sel)
+            if m:
+                shown[m.group(1)] = m.group(2)
+    return shown
+
+
+def parse_flows_page(html: str) -> dict:
+    soup = BeautifulSoup(html, "lxml")
+
+    def text_of(elem_id):
+        el = soup.find(id=elem_id)
+        if el is None:
+            raise NosError(f"'{elem_id}' not found on flows page")
+        return el.get_text(strip=True)
+
+    row = {}
+    for label, svg_id, prefix in (("Act", "map-flow-current", "current"),
+                                  ("Plan", "map-flow-planned", "planned")):
+        svg = soup.find("svg", id=svg_id)
+        if svg is None:
+            raise NosError(f"'{svg_id}' not found on flows page")
+        shown = _flow_visible_arrows(svg)
+
+        signed = {}
+        for code in FLOW_CODES:
+            mag = _flow_num(text_of(f"{prefix}-value-{code}"))
+            if mag is None:
+                raise NosError(f"no {label} value for {code}")
+            if mag == 0:
+                signed[code] = 0.0
+                continue
+            direction = shown.get(code)
+            if direction is None:
+                raise NosError(f"no visible arrow direction for {label} {code}")
+            signed[code] = mag if direction == "out" else -mag
+
+        net_calc = sum(signed.values())
+        net_page = _flow_num(text_of(f"{prefix}-value-summary"))
+        if net_page is None:
+            raise NosError(f"no {label} summary value")
+
+        for code in FLOW_CODES:
+            row[f"{label}_{code.upper()}_Signed"] = signed[code]
+        row[f"{label}_Net_Calc"] = net_calc
+        row[f"{label}_Net_Page"] = net_page
+        row[f"{label}_Check"] = abs(net_calc - net_page) <= FLOW_TOLERANCE_MW
+
+    ace = _flow_num(text_of("ace-value"))
+    if ace is None:
+        raise NosError("ACE value not parsed")
+    row["ACE_MW"] = ace
+
+    m = re.search(r"(\d{2}\.\d{2}\.\d{4})\.?\s+(\d{2}:\d{2})", text_of("flow-time"))
+    if m is None:
+        raise NosError("flow-time not parsed")
+    ts = datetime.datetime.strptime(f"{m.group(1)} {m.group(2)}", "%d.%m.%Y %H:%M")
+    row["Timestamp"] = ts.strftime("%Y-%m-%d %H:%M")
+    return row
+
+
+def load_flows_history() -> pd.DataFrame:
+    if os.path.exists(FLOWS_CSV):
+        df = pd.read_csv(FLOWS_CSV, dtype={"Timestamp": str})
+        if len(df):
+            return df
+    return pd.DataFrame(columns=FLOW_COLS)
+
+
+def update_flows_history() -> dict:
+    session = create_resilient_session(retries=2, backoff_factor=1.5)
+    resp = safe_get(session, FLOWS_PAGE, timeout_tuple=(10, 45))
+    resp.raise_for_status()
+
+    row = parse_flows_page(resp.text)
+    row["Fetched_At"] = datetime.datetime.now(NOS_TZ).isoformat(timespec="minutes")
+
+    # One row per page timestamp. A newer fetch of the same timestamp replaces the old row.
+    hist = load_flows_history()
+    hist = hist[hist["Timestamp"] != row["Timestamp"]]
+    hist = pd.concat([hist, pd.DataFrame([row], columns=FLOW_COLS)], ignore_index=True)
+
+    cutoff = (_sarajevo_today() - datetime.timedelta(days=HISTORY_DAYS - 1)).strftime("%Y-%m-%d")
+    hist = hist[hist["Timestamp"].str[:10] >= cutoff]
+    hist = hist.sort_values("Timestamp").reset_index(drop=True)
+    hist.to_csv(FLOWS_CSV, index=False)
+
+    return {
+        "flows_timestamp": row["Timestamp"],
+        "flows_checks_ok": bool(row["Act_Check"] and row["Plan_Check"]),
+        "flows_rows": int(len(hist)),
+    }
 # =============================================================================
 # DAM reference curve (energy-charts.info). Returns None on failure, never a typed-in curve.
 # =============================================================================
