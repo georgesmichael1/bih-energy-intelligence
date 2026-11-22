@@ -4,6 +4,7 @@ import re
 import json
 import time
 import datetime
+from urllib.parse import urljoin, urlencode
 from zoneinfo import ZoneInfo
 
 import requests as std_requests
@@ -12,7 +13,6 @@ from urllib3.util import Retry
 import pandas as pd
 import pdfplumber
 from bs4 import BeautifulSoup
-from urllib.parse import urljoin
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
@@ -90,17 +90,16 @@ def parse_numeric_cell(val):
 
 
 # =============================================================================
-# NOS BiH hourly dispatch: live fetch, 30-day history, no hardcoded values
+# NOS BiH hourly dispatch: admin-ajax fetch, 30-day history, no hardcoded values
+# The page's script-production.js POSTs action=production and production=date=dd.mm.yyyy.
+# to admin-ajax.php; the response's "data" field is the HTML table.
 # =============================================================================
 
 NOS_PAGE = "https://www.nosbih.ba/en/ees/graf-potrosnje/"
+NOS_AJAX_URL = "https://www.nosbih.ba/en/wp-admin/admin-ajax.php"
 NOS_HOURLY_CSV = "nos_hourly.csv"
 NOS_TZ = ZoneInfo("Europe/Sarajevo")
 HISTORY_DAYS = 30
-
-# Fill this in once the page's date selector is known, e.g. "https://www.nosbih.ba/...?date={date}".
-# While it is None, each run stores the day the page shows, so history builds one day per run.
-NOS_DAY_URL_TEMPLATE = None
 
 NOS_VALUE_COLS = [
     "Planned_Production_MW",
@@ -132,7 +131,7 @@ def parse_nos_table(html: str, day: datetime.date) -> pd.DataFrame:
     soup = BeautifulSoup(html, "lxml")
     table = soup.find("table", id="productionTable")
     if table is None:
-        raise NosError("productionTable not found on NOS page")
+        raise NosError("productionTable not found in admin-ajax response")
 
     rows = []
     for tr in table.select("tbody tr"):
@@ -158,37 +157,33 @@ def parse_nos_table(html: str, day: datetime.date) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def _page_date(html: str, fallback: datetime.date):
-    # Use the date the page says it is showing, if a date input is present.
-    soup = BeautifulSoup(html, "lxml")
-    for inp in soup.find_all("input"):
-        key = f"{inp.get('id', '')} {inp.get('name', '')}".lower()
-        if "date" not in key:
-            continue
-        value = (inp.get("value") or "").strip()
-        for fmt in ("%Y-%m-%d", "%d.%m.%Y", "%d/%m/%Y", "%d-%m-%Y"):
-            try:
-                return datetime.datetime.strptime(value, fmt).date(), "page"
-            except ValueError:
-                pass
-    return fallback, "assumed_today"
-
-
-def fetch_nos_page(session, url: str = NOS_PAGE) -> str:
-    resp = safe_get(session, url, timeout_tuple=(10, 45))
+def fetch_nos_day(session, day: datetime.date) -> pd.DataFrame:
+    # Same request the page's script-production.js sends when a date is chosen.
+    date_str = day.strftime("%d.%m.%Y.")
+    form_value = urlencode({"date": date_str})
+    headers = {
+        **HEADERS,
+        "Accept": "application/json, text/javascript, */*; q=0.01",
+        "X-Requested-With": "XMLHttpRequest",
+        "Referer": NOS_PAGE,
+        "Origin": "https://www.nosbih.ba",
+    }
+    files = {
+        "action": (None, "production"),
+        "production": (None, form_value),
+    }
+    resp = session.post(NOS_AJAX_URL, headers=headers, files=files, timeout=(10, 45))
     resp.raise_for_status()
-    return resp.text
 
+    try:
+        payload = resp.json()
+    except ValueError as e:
+        raise NosError(f"admin-ajax did not return JSON for {date_str}") from e
 
-def fetch_nos_day(session, day: datetime.date = None):
-    # Returns (DataFrame, source). Raises NosError or requests errors on failure.
-    if NOS_DAY_URL_TEMPLATE and day is not None:
-        html = fetch_nos_page(session, NOS_DAY_URL_TEMPLATE.format(date=day.isoformat()))
-        return parse_nos_table(html, day), "template"
-
-    html = fetch_nos_page(session)
-    shown, source = _page_date(html, fallback=_sarajevo_today())
-    return parse_nos_table(html, shown), source
+    html = payload.get("data") if isinstance(payload, dict) else None
+    if not html:
+        raise NosError(f"admin-ajax returned no data for {date_str}")
+    return parse_nos_table(html, day)
 
 
 def load_nos_history() -> pd.DataFrame:
@@ -218,32 +213,26 @@ def merge_nos(hist: pd.DataFrame, new: pd.DataFrame) -> pd.DataFrame:
 
 
 def update_nos_history() -> dict:
-    # Fetch the day the page shows, optionally backfill the 30-day window, save, return status.
+    # Fetch the 30-day window: all days missing from history, plus today and yesterday (actuals keep arriving).
     hist = load_nos_history()
     session = create_resilient_session(retries=2, backoff_factor=1.5)
     stamp = datetime.datetime.now(NOS_TZ).isoformat(timespec="minutes")
+    today = _sarajevo_today()
+
+    window = [today - datetime.timedelta(days=i) for i in range(HISTORY_DAYS)]
+    have = set(hist["Date"]) if len(hist) else set()
+    refetch = {today, today - datetime.timedelta(days=1)}
+    todo = [d for d in window if d not in have or d in refetch]
+
     failed = []
-
-    # 1. Always fetch what the page shows right now.
-    today_df, date_source = fetch_nos_day(session)
-    today_df["Fetched_At"] = stamp
-    hist = merge_nos(hist, today_df)
-
-    # 2. Backfill only if the date URL pattern is known.
-    if NOS_DAY_URL_TEMPLATE:
-        today = _sarajevo_today()
-        have = set(hist["Date"]) if len(hist) else set()
-        for i in range(HISTORY_DAYS):
-            d = today - datetime.timedelta(days=i)
-            if i > 1 and d in have:
-                continue                          # refetch today and yesterday; older days only if missing
-            try:
-                df, _ = fetch_nos_day(session, d)
-                df["Fetched_At"] = stamp
-                hist = merge_nos(hist, df)
-            except Exception as e:
-                failed.append(f"{d}: {e}")
-            time.sleep(1)                         # be polite to the server
+    for d in todo:
+        try:
+            df = fetch_nos_day(session, d)
+            df["Fetched_At"] = stamp
+            hist = merge_nos(hist, df)
+        except Exception as e:
+            failed.append(f"{d}: {e}")
+        time.sleep(1)                             # be polite to the server
 
     hist.to_csv(NOS_HOURLY_CSV, index=False)
 
@@ -254,8 +243,9 @@ def update_nos_history() -> dict:
         latest_actual = f"{last['Date']} {int(last['Hour']):02d}:00"
 
     return {
-        "nos_date_source": date_source,
+        "nos_source": "admin-ajax",
         "nos_fetched_at": stamp,
+        "nos_days_requested": len(todo),
         "nos_days_failed": failed,
         "nos_rows": int(len(hist)),
         "nos_latest_actual": latest_actual,
@@ -635,7 +625,6 @@ def sync_github_master_csv(
     )
 
     # 3. Update BIH-0487 from the DAM curve only when it was fetched. Otherwise keep the previous value.
-    # ToU tariff levels are computed from the same inputs the workbook uses (MT 115 BAM/MWh, VT +35%, +18.5 fee).
     tou_mt_bam = round(115.0 + 18.5, 2)
     tou_vt_bam = round(115.0 * 1.35 + 18.5, 2)
     if dam_curve:
@@ -652,8 +641,7 @@ def sync_github_master_csv(
     else:
         print("   [NOTICE] DAM curve unavailable; BIH-0487 left unchanged.")
 
-    # 4. Dispatch rows (BIH-0488 onward) are no longer written here. They are stored in nos_hourly.csv.
-    # Any old dispatch rows are removed from bih_data.csv.
+    # 4. Dispatch rows (BIH-0488 onward) are stored in nos_hourly.csv, not here.
     df = df[df["Record_ID"] <= "BIH-0487"].copy()
     df.to_csv(csv_path, index=False, encoding="utf-8")
 
@@ -735,7 +723,7 @@ def build_bih_intelligence_workbook(
         f"({net_plan:+,.0f} MWh net); DAM peaks at {dam_peak_txt}.",
         "ENTSO-E BiH Control Area (10YBA-JPCC-----B) & CROPEX/SEEPEX Coupled Spot Benchmark.",
         "Charge BESS during the midday solar trough and discharge into the evening peak load.",
-        f"NOS BiH Graph Consumption page ({nos_status.get('nos_date_source', 'unknown')}), fetched "
+        f"NOS BiH Graph Consumption page (admin-ajax), fetched "
         f"{nos_status.get('nos_fetched_at', 'unknown')}. DAM reference: energy-charts.info (RS zone).",
     )
 
@@ -1054,7 +1042,7 @@ def build_bih_intelligence_workbook(
         c.fill = fill_navy
     ws5.freeze_panes = "A9"
     sources_list = (
-        ("Hourly Dispatch Table (24h Prod & Cons MW)", NOS_PAGE, "NOS BiH", datetime.date.today().isoformat(), "Graph Consumption page, productionTable", "LIVE"),
+        ("Hourly Dispatch Table (24h Prod & Cons MW)", NOS_PAGE, "NOS BiH", datetime.date.today().isoformat(), "Graph Consumption page, admin-ajax productionTable", "LIVE"),
         ("FCR, aFRR & mFRR Balancing Energy Prices", "https://www.nosbih.ba/files/balansno/izvjestaji/mjeseci/202508-en-balansno-trziste-izvjestaj.pdf", "NOS BiH", "2025-09-15", "Page 1, Table: Activated balancing energy", "VERIFIED"),
         ("SERC Statutory Price Caps (aFRR & mFRR)", "https://www.nosbih.ba/files/balansno/izvjestaji/godine/2024-en-balansno-trziste-izvjestaj.pdf", "NOS BiH / SERC", "2025-03-01", "Page 4, Section: Ancillary services", "VERIFIED"),
         ("CBBH Daily FX List (USD/BAM & EUR/BAM Peg)", "https://cbbh.ba/CurrencyExchange/", "Central Bank of BiH (CBBH)", "2026-11-21", "Daily Exchange Rates List No. 230", "VERIFIED"),
@@ -1093,6 +1081,8 @@ if __name__ == "__main__":
 
     try:
         nos_status = update_nos_history()
+        if nos_status["nos_days_failed"]:
+            print(f"[NOS] {len(nos_status['nos_days_failed'])} day(s) failed: {nos_status['nos_days_failed']}")
     except Exception as e:
         nos_status = {"nos_error": str(e)}
         print(f"[NOS] FAILED: {e}")
