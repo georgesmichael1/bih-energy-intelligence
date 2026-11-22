@@ -3,3 +3,5 @@ pandas<3
 pdfplumber
 beautifulsoup4
 openpyxl
+lxml
+curl_cffi
