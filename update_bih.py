@@ -160,7 +160,6 @@ def parse_nos_table(html: str, day: datetime.date) -> pd.DataFrame:
 def fetch_nos_day(session, day: datetime.date) -> pd.DataFrame:
     # Same request the page's script-production.js sends when a date is chosen.
     date_str = day.strftime("%d.%m.%Y.")
-    form_value = urlencode({"date": date_str})
     headers = {
         **HEADERS,
         "Accept": "application/json, text/javascript, */*; q=0.01",
@@ -168,11 +167,11 @@ def fetch_nos_day(session, day: datetime.date) -> pd.DataFrame:
         "Referer": NOS_PAGE,
         "Origin": "https://www.nosbih.ba",
     }
-    files = {
-        "action": (None, "production"),
-        "production": (None, form_value),
+    data = {
+        "action": "production",
+        "production": urlencode({"date": date_str}),
     }
-    resp = session.post(NOS_AJAX_URL, headers=headers, files=files, timeout=(10, 45))
+    resp = session.post(NOS_AJAX_URL, headers=headers, data=data, timeout=(10, 45))
     resp.raise_for_status()
 
     try:
@@ -184,7 +183,6 @@ def fetch_nos_day(session, day: datetime.date) -> pd.DataFrame:
     if not html:
         raise NosError(f"admin-ajax returned no data for {date_str}")
     return parse_nos_table(html, day)
-
 
 def load_nos_history() -> pd.DataFrame:
     if os.path.exists(NOS_HOURLY_CSV):
