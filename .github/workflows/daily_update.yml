@@ -35,7 +35,7 @@ jobs:
         run: |
           git config user.name "BiH Energy Auto-Updater"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add bih_data.csv change_log.csv status.json
+          git add bih_data.csv Generation_Monthly.csv change_log.csv status.json
           if git diff --staged --quiet; then
             echo "No data changes today."
           else
