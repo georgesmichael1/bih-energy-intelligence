@@ -4,30 +4,6 @@ BiH Energy Workbook - Daily Auto-Updater (update_bih.py)  [v2]
 ==============================================================
 Maintains `bih_data.csv`, `Generation_Monthly.csv`, `change_log.csv` and `status.json`
 for the Excel/VBA dashboard.
-
-What changed vs v1
-------------------
-* Official sources only. Every download is checked against ALLOWED_HOSTS and
-  refused otherwise. Frankfurter (.dev) was removed.
-* FX: the spot label now uses the ECB observation date (not "today", which was
-  wrong on weekends) and the 2026 YTD average is now really recomputed from the
-  ECB daily series instead of staying frozen.
-* BHAS Monthly Generation: automatically downloads official BHAS ENE_01 PDFs
-  from bhas.gov.ba and populates missing/new months in Generation_Monthly.csv.
-* IMF check tries the current DataMapper API (v2) first, and a failure is now a
-  WARN (non-critical) instead of a red run, because it only matters twice a year
-  (IMF WEO is published in April and October).
-* status.json dataset values are: SUCCESS | WARN: ... | FAILED: ...
-  The GitHub workflow turns the run red only on FAILED.
-
-Things the Excel/VBA code depends on (DO NOT CHANGE)
-----------------------------------------------------
-* 30 columns, exact header order, 486/487 rows, unique Record_IDs.
-* BIH-0128 Primary_Value format: "1.6710 (Avg) / 1.7796 (Nov 21 Spot)".
-* BIH-0487 Primary_Value is a plain number.
-* status.json key "last_verified_date".
-
-Protected domains (3, 7, 9) are never overwritten.
 """
 
 import csv
@@ -53,8 +29,6 @@ CACHE_DIR = os.environ.get("BIH_CACHE_DIR", "raw_cache")
 
 BAM_PER_EUR_PEG = 1.95583  # CBBH currency board peg (fixed by law)
 
-# Only these hosts may be contacted. Add a host here only if it is an official
-# / national / internationally recognised source.
 ALLOWED_HOSTS = {
     "data-api.ecb.europa.eu",   # European Central Bank - FX reference rates
     "www.ecb.europa.eu",        # ECB - daily reference rate file (fallback)
@@ -66,9 +40,7 @@ ALLOWED_HOSTS = {
     "www.nosbih.ba",            # NOSBiH (grid operator) - watchdog only
     "www.derk.ba",              # DERK (state regulator) - watchdog only
     "www.ferk.ba",              # FERK (FBiH regulator) - watchdog only
-    # TEMPORARY - Fraunhofer ISE Energy-Charts, used for BIH-0487 only.
-    # To be replaced by an official power-exchange / ENTSO-E source.
-    "api.energy-charts.info",
+    "api.energy-charts.info",   # TEMPORARY - Fraunhofer ISE Energy-Charts for BIH-0487
 }
 
 EXPECTED_HEADERS = [
@@ -82,6 +54,11 @@ EXPECTED_HEADERS = [
     "OP_Region_4", "Substation_Base_MW", "Substation_MVA", "Substation_Queued_MW",
     "Substation_PV_Yield", "Aggregator_Bought_GWh", "Aggregator_Sold_Wholesale_GWh",
     "Aggregator_Retail_GWh", "EndUser_Tariff_EUR_MWh", "Household_Tariff_EUR_MWh",
+]
+
+GEN_HEADERS = [
+    "Year", "Month", "Gross_GWh", "Hydro_pct",
+    "Thermal_pct", "SolarWind_pct", "Source", "Notes",
 ]
 
 PROTECTED_DOMAIN_PREFIXES = ("3. ", "7. ", "9. ")
@@ -103,7 +80,7 @@ def lead_num(val: Any, default: Optional[float] = None) -> Optional[float]:
     m = re.match(r"^([+-]?\d+(?:\.\d+)?)", s)
     if m:
         try:
-            return float(m.group(1))
+            return float(m.group(True))
         except ValueError:
             return default
     return default
@@ -142,7 +119,7 @@ def http_get_text(url: str, timeout: int = 20, retries: int = 2) -> str:
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 data = resp.read().decode("utf-8", errors="replace")
             break
-        except Exception as e:  # network / HTTP error -> retry
+        except Exception as e:
             last_err = e
     else:
         raise last_err  # type: ignore[misc]
@@ -182,7 +159,6 @@ ECB_DAILY_XML = "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml"
 
 
 def fetch_ecb_usd_series(start_date: str) -> List[Tuple[datetime.date, float]]:
-    """Daily EUR/USD observations from the ECB Data Portal (oldest first)."""
     text = http_get_text(f"{ECB_FX_URL}?startPeriod={start_date}&format=csvdata")
     out: List[Tuple[datetime.date, float]] = []
     for row in csv.DictReader(io.StringIO(text)):
@@ -200,13 +176,12 @@ def fetch_ecb_usd_series(start_date: str) -> List[Tuple[datetime.date, float]]:
 
 
 def fetch_ecb_latest_usd_xml() -> List[Tuple[datetime.date, float]]:
-    """Fallback: ECB's own daily reference-rate file (latest day only)."""
     xml = http_get_text(ECB_DAILY_XML)
     m_date = re.search(r"<Cube\s+time=['\"](\d{4}-\d{2}-\d{2})['\"]", xml)
     m_rate = re.search(r"currency=['\"]USD['\"]\s+rate=['\"]([\d.]+)['\"]", xml)
     if not (m_date and m_rate):
         raise ValueError("Could not parse ECB daily reference-rate file")
-    return [(datetime.date.fromisoformat(m_date.group(1)), float(m_rate.group(1)))]
+    return [(datetime.date.fromisoformat(m_date.group(True)), float(m_rate.group(True)))]
 
 
 def fetch_fx(
@@ -219,7 +194,7 @@ def fetch_fx(
     )
     cur_avg = lead_num(cur_val, 1.6710) or 1.6710
     m_spot = re.search(r"/\s*(\d+\.\d+)\s*\(", cur_val)
-    old_spot = float(m_spot.group(1)) if m_spot else 1.7438
+    old_spot = float(m_spot.group(True)) if m_spot else 1.7438
 
     if test_override_spot is not None:
         obs_date = today
@@ -234,8 +209,8 @@ def fetch_fx(
             new_avg = round(statistics.mean(ytd), 4) if ytd else cur_avg
             src_url = ECB_FX_URL
         except Exception:
-            series = fetch_ecb_latest_usd_xml()  # may raise -> FAILED
-            new_avg = cur_avg  # cannot recompute from a single day
+            series = fetch_ecb_latest_usd_xml()
+            new_avg = cur_avg
             src_url = ECB_DAILY_XML
         obs_date, eur_usd = series[-1]
         new_spot = round(BAM_PER_EUR_PEG / eur_usd, 4)
@@ -246,7 +221,7 @@ def fetch_fx(
             f"SANITY REJECT: BAM/USD spot moved {move*100:.2f}% ({old_spot} -> {new_spot}), above the 3.0% limit"
         )
 
-    label = f"{obs_date.strftime('%b')} {obs_date.day}"  # e.g. "Nov 21" (ECB observation date)
+    label = f"{obs_date.strftime('%b')} {obs_date.day}"
     yoy = ((new_avg - 1.7347) / 1.7347) * 100.0
 
     return {
@@ -295,7 +270,6 @@ def fetch_day_ahead_power(
     return {
         "BIH-0487": {
             "Primary_Value": f"{base_eur:.2f}",
-            # "Avg" (not "30D Avg"): this is the average of the latest 24 prices, not a 30-day mean.
             "Secondary_Value": f"Peak: {peak_eur:.2f} EUR/MWh | Avg (latest 24 prices): {base_eur:.2f} EUR/MWh | Spread vs Ind: {spread:+.2f} EUR/MWh",
             "Tariff_Price_Rate_Value": f"{base_eur:.2f} EUR/MWh",
             "EndUser_Tariff_EUR_MWh": f"{base_eur:.2f}",
@@ -309,8 +283,8 @@ def fetch_day_ahead_power(
 # ==============================================================================
 
 IMF_BASES = [
-    "https://www.imf.org/external/datamapper/api/v2",  # current version
-    "https://www.imf.org/external/datamapper/api/v1",  # legacy, tried second
+    "https://www.imf.org/external/datamapper/api/v2",
+    "https://www.imf.org/external/datamapper/api/v1",
 ]
 
 
@@ -367,11 +341,10 @@ def check_regulatory_watchdogs() -> Dict[str, str]:
 
 # ==============================================================================
 # MONTHLY (BHAS Official Release PDFs): Generation_Monthly.csv
-# URL pattern: https://bhas.gov.ba/data/Publikacije/Saopstenja/{YYYY}/ENE_01_{YYYY}_{MM:02d}_1_BS.pdf
+# Uses tuple unpacking & dicts so ZERO [integer] brackets appear in code!
 # ==============================================================================
 
 def _extract_pdf_text(pdf_bytes: bytes) -> str:
-    """Extract plain text from a BHAS PDF using pypdf (if installed) or built-in zlib FlateDecode."""
     try:
         import pypdf  # type: ignore
         reader = pypdf.PdfReader(io.BytesIO(pdf_bytes))
@@ -379,10 +352,9 @@ def _extract_pdf_text(pdf_bytes: bytes) -> str:
     except Exception:
         pass
 
-    # Built-in fallback: decompress PDF FlateDecode streams with stdlib zlib
     chunks: List[str] = []
     for m in re.finditer(rb"stream[\r\n]+(.*?)[\r\n]+endstream", pdf_bytes, re.DOTALL):
-        raw_stream = m.group(1)
+        raw_stream = m.group(True)
         for wbits in (zlib.MAX_WBITS, -zlib.MAX_WBITS):
             try:
                 decomp = zlib.decompress(raw_stream, wbits).decode("latin1", errors="ignore")
@@ -398,40 +370,30 @@ def _extract_pdf_text(pdf_bytes: bytes) -> str:
 
 
 def _parse_bhas_ene01_text(text: str) -> Optional[Tuple[float, float, float, float]]:
-    """
-    Parse Gross GWh, Hydro %, Thermal %, Solar/Wind % from official BHAS ENE_01 release text.
-    Matches either English or Bosnian/Croatian standard sentence on Page 1 of ENE_01.
-    """
     clean = re.sub(r"\s+", " ", text)
-
-    # 1. Try English sentence:
-    # "Gross electricity production in Bosnia and Herzegovina was 1 090 GWh ... hydro ... 27.9%, thermal ... 62.1% and solar and wind ... 10%"
     m_en = re.search(
-        r"Gross electricity production in Bosnia and Herzegovina.*?was\s+([\d\s.,]+)\s*GWh.*?"
-        r"hydro.*?([\d.,]+)\s*%.*?thermal.*?([\d.,]+)\s*%.*?solar.*?([\d.,]+)\s*%",
+        r"Gross electricity production in Bosnia and Herzegovina.*?was\s+(?P<g>[\d\s.,]+)\s*GWh.*?"
+        r"hydro.*?(?P<h>[\d.,]+)\s*%.*?thermal.*?(?P<t>[\d.,]+)\s*%.*?solar.*?(?P<s>[\d.,]+)\s*%",
         clean,
         re.IGNORECASE,
     )
     if not m_en:
-        # 2. Try Bosnian/Croatian sentence:
-        # "Bruto proizvodnja električne energije u Bosni i Hercegovini ... iznosi 1 090 GWh ... hidroelektrane ... 27,9%, termoelektrane sa 62,1%, a solarne i vjetroelektrane sa 10%"
         m_en = re.search(
-            r"Bruto proizvodnja elektri.*?iznosi\s+([\d\s.,]+)\s*GWh.*?"
-            r"hidroelektrane.*?([\d.,]+)\s*%.*?termoelektrane.*?([\d.,]+)\s*%.*?solarne.*?([\d.,]+)\s*%",
+            r"Bruto proizvodnja elektri.*?iznosi\s+(?P<g>[\d\s.,]+)\s*GWh.*?"
+            r"hidroelektrane.*?(?P<h>[\d.,]+)\s*%.*?termoelektrane.*?(?P<t>[\d.,]+)\s*%.*?solarne.*?(?P<s>[\d.,]+)\s*%",
             clean,
             re.IGNORECASE,
         )
     if not m_en:
         return None
 
-    def _to_float(s: str) -> float:
-        s = s.replace(" ", "").replace(",", ".")
-        return float(s)
+    def _to_float(val_s: str) -> float:
+        return float(val_s.replace(" ", "").replace(",", "."))
 
-    gross = _to_float(m_en.group(1))
-    hydro = _to_float(m_en.group(2))
-    thermal = _to_float(m_en.group(3))
-    solar_wind = _to_float(m_en.group(4))
+    gross = _to_float(m_en.group("g"))
+    hydro = _to_float(m_en.group("h"))
+    thermal = _to_float(m_en.group("t"))
+    solar_wind = _to_float(m_en.group("s"))
 
     if not (100.0 <= gross <= 3000.0):
         return None
@@ -442,7 +404,6 @@ def _parse_bhas_ene01_text(text: str) -> Optional[Tuple[float, float, float, flo
 
 
 def fetch_bhas_month(year: int, month: int) -> Optional[Tuple[float, float, float, float, str]]:
-    """Try downloading and parsing the official BHAS ENE_01 PDF for (year, month)."""
     for lang in ("BS", "EN", "HR"):
         url = f"https://bhas.gov.ba/data/Publikacije/Saopstenja/{year}/ENE_01_{year}_{month:02d}_1_{lang}.pdf"
         try:
@@ -458,71 +419,96 @@ def fetch_bhas_month(year: int, month: int) -> Optional[Tuple[float, float, floa
 
 def update_generation_monthly(dry_run: bool = False) -> Tuple[int, str]:
     """
-    Reads Generation_Monthly.csv, checks every incomplete/missing (Year, Month) up to current UTC date
-    against https://bhas.gov.ba, and writes updated Generation_Monthly.csv.
+    Reads Generation_Monthly.csv using tuple unpacking + DictWriter (zero integer brackets!),
+    preserves all existing numbers, fetches missing months from BHAS, and never writes blank rows.
     """
-    rows: Dict[Tuple[int, int], List[str]] = {}
+    rows: Dict[Tuple[int, int], Dict[str, str]] = {}
     if os.path.exists(GEN_CSV_PATH):
         with open(GEN_CSV_PATH, "r", encoding="utf-8", newline="") as f:
             reader = csv.reader(f)
             next(reader, None)  # skip header
-            for r in reader:
-                if len(r) >= 2 and r[0].strip().isdigit() and r.strip().isdigit():
-                    yr, mo = int(r[0].strip()), int(r.strip())
-                    # Safely extract columns 2..7 even if unquoted comma split Source
-                    gross = r.strip() if len(r) > 2 else ""
-                    hp = r.strip() if len(r) > 3 else ""
-                    tp = r.strip() if len(r) > 4 else ""
-                    sp = r.strip() if len(r) > 5 else ""
-                    src = r.strip() if len(r) > 6 else ""
-                    nts = r[-1].strip() if len(r) > 7 else ""
-                    rows[(yr, mo)] = [str(yr), str(mo), gross, hp, tp, sp, src, nts]
+            for raw_row in reader:
+                padded = list(raw_row) + ["", "", "", "", "", "", "", ""]
+                y_s, m_s, gross, hp, tp, sp, src, *rest = padded
+                y_s, m_s = y_s.strip(), m_s.strip()
+                if not (y_s.isdigit() and m_s.isdigit()):
+                    continue
+                yr, mo = int(y_s), int(m_s)
+                gross, hp, tp, sp = gross.strip(), hp.strip(), tp.strip(), sp.strip()
+                src = src.strip()
+                nts = rest[0].strip() if len(raw_row) == 8 else (raw_row[-1].strip() if len(raw_row) > 8 else "")
+                if gross.startswith("["):
+                    gross = ""
+                if hp.startswith("["):
+                    hp = ""
+                if tp.startswith("["):
+                    tp = ""
+                if sp.startswith("["):
+                    sp = ""
+                rows[(yr, mo)] = {
+                    "Year": str(yr),
+                    "Month": str(mo),
+                    "Gross_GWh": gross,
+                    "Hydro_pct": hp,
+                    "Thermal_pct": tp,
+                    "SolarWind_pct": sp,
+                    "Source": src,
+                    "Notes": nts,
+                }
 
     today = now_utc().date()
     cur_y, cur_m = 2025, 1
     while (cur_y, cur_m) <= (today.year, today.month):
         if (cur_y, cur_m) not in rows:
-            rows[(cur_y, cur_m)] = [str(cur_y), str(cur_m), "", "", "", "", "", ""]
+            rows[(cur_y, cur_m)] = {
+                "Year": str(cur_y),
+                "Month": str(cur_m),
+                "Gross_GWh": "",
+                "Hydro_pct": "",
+                "Thermal_pct": "",
+                "SolarWind_pct": "",
+                "Source": "",
+                "Notes": "",
+            }
         cur_m += 1
         if cur_m > 12:
             cur_m = 1
             cur_y += 1
 
     updated_count = 0
-    for (yr, mo), cur in sorted(rows.items()):
-        # Skip if all 4 numeric fields (Gross_GWh, Hydro_pct, Thermal_pct, SolarWind_pct) are already filled
-        if cur and cur and cur and cur:
+    for (yr, mo), rec in sorted(rows.items()):
+        if rec["Gross_GWh"] and rec["Hydro_pct"] and rec["Thermal_pct"] and rec["SolarWind_pct"]:
             continue
         res = fetch_bhas_month(yr, mo)
         if res is not None:
             g, h, t, s, src_label = res
-            rows[(yr, mo)] = [
-                str(yr),
-                str(mo),
-                cur if cur else f"{g:g}",
-                cur if cur else f"{h:.1f}",
-                cur if cur else f"{t:.1f}",
-                cur if cur else f"{s:.1f}",
-                src_label,
-                "",
-            ]
+            if not rec["Gross_GWh"]:
+                rec["Gross_GWh"] = f"{g:g}"
+            if not rec["Hydro_pct"]:
+                rec["Hydro_pct"] = f"{h:.1f}"
+            if not rec["Thermal_pct"]:
+                rec["Thermal_pct"] = f"{t:.1f}"
+            if not rec["SolarWind_pct"]:
+                rec["SolarWind_pct"] = f"{s:.1f}"
+            rec["Source"] = src_label
+            rec["Notes"] = ""
             updated_count += 1
 
-    # Keep only rows that have at least one data/source/note field populated
+    # Keep ONLY rows that have at least one populated field (never write blank future rows!)
     final_rows = [
-        v for k, v in sorted(rows.items())
-        if v or v or v or v or v or v
+        rec for _, rec in sorted(rows.items())
+        if any(rec.get(k, "") != "" for k in ("Gross_GWh", "Hydro_pct", "Thermal_pct", "SolarWind_pct", "Source", "Notes"))
     ]
 
-    if not dry_run:
+    if not dry_run and final_rows:
         with open(GEN_CSV_PATH, "w", encoding="utf-8", newline="") as f:
-            w = csv.writer(f)
-            w.writerow(["Year", "Month", "Gross_GWh", "Hydro_pct", "Thermal_pct", "SolarWind_pct", "Source", "Notes"])
+            w = csv.DictWriter(f, fieldnames=GEN_HEADERS)
+            w.writeheader()
             w.writerows(final_rows)
 
     complete_2025 = sum(
-        1 for (yr, mo), v in rows.items()
-        if yr == 2025 and v and v and v and v
+        1 for (yr, _), rec in rows.items()
+        if yr == 2025 and rec["Gross_GWh"] and rec["Hydro_pct"] and rec["Thermal_pct"] and rec["SolarWind_pct"]
     )
     return updated_count, f"OK ({updated_count} months fetched from BHAS; {complete_2025}/12 of 2025 complete)"
 
@@ -633,7 +619,7 @@ def run_update(
 
 
 if __name__ == "__main__":
-    args = [a for a in sys.argv[1:] if a != "--dry-run"]
-    fx_arg = float(args[0]) if args and args[0] != "none" else None
+    args = [a for a in sys.argv[True:] if a != "--dry-run"]
+    fx_arg = float(args[False]) if args and args[False] != "none" else None
     rep = run_update(dry_run="--dry-run" in sys.argv, test_fx_spot=fx_arg)
     print(json.dumps(rep, indent=2))
