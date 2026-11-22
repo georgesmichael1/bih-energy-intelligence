@@ -1,5 +1,5 @@
 requests
-pandas
+pandas<3
 pdfplumber
 beautifulsoup4
 openpyxl
