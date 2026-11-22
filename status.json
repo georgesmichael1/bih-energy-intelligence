@@ -1,16 +1,16 @@
 {
-  "last_run_utc": "2026-11-22T08:45:15Z",
+  "last_run_utc": "2026-11-22T08:50:11Z",
   "last_verified_date": "22 Nov 2026",
   "row_count": 487,
   "datasets": {
     "fx_bam_usd": "SUCCESS",
     "day_ahead_power": "SUCCESS",
-    "macro_imf": "WARN: IMF DataMapper unavailable (HTTP Error 404: Not Found); GDP stays unchanged",
-    "bhas_generation_monthly": "OK (0 months fetched from BHAS; 12/12 of 2025 complete)"
+    "macro_imf": "WARN: IMF DataMapper unavailable (HTTP Error 429: Too Many Requests); GDP stays unchanged",
+    "bhas_generation_monthly": "WARN: 'list' object has no attribute 'strip'"
   },
-  "changes_applied": 1,
+  "changes_applied": 0,
   "watchdogs": {
-    "NOSBiH_Balanced_Users": "OK (sha256:20a0bffd3999)",
+    "NOSBiH_Balanced_Users": "OK (sha256:ee0516abe30c)",
     "DERK_Reports": "SKIPPED (HTTPError)",
     "FERK_Decisions": "OK (sha256:4bde90bbebc2)"
   }
