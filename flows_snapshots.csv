@@ -1,3 +1,4 @@
 Timestamp,Fetched_At,ACE_MW,Act_HR_Signed,Act_SR_Signed,Act_CG_Signed,Act_Net_Calc,Act_Net_Page,Act_Check,Plan_HR_Signed,Plan_SR_Signed,Plan_CG_Signed,Plan_Net_Calc,Plan_Net_Page,Plan_Check
 2026-11-22 20:57,2026-11-22T21:12+01:00,0.0,946.0,-67.0,-418.0,461.0,462.0,True,412.0,3.0,44.0,459.0,459.0,True
 2026-11-22 21:03,2026-11-22T21:15+01:00,-14.98,941.0,-84.0,-399.0,458.0,458.0,True,488.0,-97.0,66.0,457.0,457.0,True
+2026-11-22 21:09,2026-11-22T21:23+01:00,-7.03,1015.0,-112.0,-459.0,444.0,444.0,True,488.0,-97.0,66.0,457.0,457.0,True
