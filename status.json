@@ -2,12 +2,12 @@
   "last_verified_date": "23 Nov 2026",
   "rows": 487,
   "nos_source": "admin-ajax",
-  "nos_fetched_at": "2026-11-23T13:17+01:00",
+  "nos_fetched_at": "2026-11-23T15:40+01:00",
   "nos_days_requested": 2,
   "nos_days_failed": [],
   "nos_rows": 719,
-  "nos_latest_actual": "2026-11-23 13:00",
-  "flows_timestamp": "2026-11-23 13:03",
+  "nos_latest_actual": "2026-11-23 15:00",
+  "flows_timestamp": "2026-11-23 15:27",
   "flows_checks_ok": true,
-  "flows_rows": 8
+  "flows_rows": 9
 }
