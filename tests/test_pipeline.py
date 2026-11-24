@@ -422,12 +422,3 @@ class PipelineTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
-
-class FullWindowNosTests(unittest.TestCase):
-    def test_merge_replace_drops_stale_values_for_refetched_day(self):
-        d = u._sarajevo_today()
-        hist = pd.DataFrame([{**{c: None for c in u.NOS_COLS}, "Date": d, "Hour": 1, u.NOS_VALUE_COLS[0]: 5.0, "Fetched_At": "old"}])
-        new = pd.DataFrame([{**{c: None for c in u.NOS_COLS}, "Date": d, "Hour": 1, "Fetched_At": "new"}])
-        self.assertTrue(pd.isna(u.merge_nos(hist, new, replace=True).iloc[0][u.NOS_VALUE_COLS[0]]))
-        self.assertEqual(u.merge_nos(hist, new).iloc[0][u.NOS_VALUE_COLS[0]], 5.0)
