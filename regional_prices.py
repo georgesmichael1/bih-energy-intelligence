@@ -136,7 +136,8 @@ def parse_hupx_day(rows, delivery_day):
                     "Interval_Start_UTC": t0.isoformat(),
                     "Interval_End_UTC": (t0 + dt.timedelta(seconds=900)).isoformat(),
                     "Price_EUR_MWh": float(value), "Source": HUPX_SOURCE,
-                    "Attribution": HUPX_ATTRIBUTION, "License": HUPX_LICENSE_URL})
+                    "Attribution": HUPX_ATTRIBUTION, "License": HUPX_LICENSE_URL,
+                    "Fetched_At": utc_now()})
     return out
 
 
