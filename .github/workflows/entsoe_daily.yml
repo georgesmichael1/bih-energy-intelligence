@@ -44,7 +44,7 @@ jobs:
           import sys
           from entsoe_adapter import update_entsoe
           from pipeline_status import DATASETS
-          update_entsoe()
+          update_entsoe(include_physical=False)
           names = [k for k in DATASETS if k.startswith("entsoe_")]
           if not names:
               print("::error::No ENTSO-E dataset state was recorded")
@@ -55,13 +55,13 @@ jobs:
           sys.exit(1 if bad else 0)
           PY
 
-      # Only the three ENTSO-E CSVs are committed here. status.json is owned by the 30-minute job.
+      # Only load and HR schedule CSVs (physical flows have their own rolling writer) are committed here. status.json is owned by the 30-minute job.
       - name: Commit and push ENTSO-E CSVs
         if: success()
         run: |
           git config user.name "BiH Energy Auto-Updater"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          for f in entsoe_load_forecast.csv entsoe_physical_flows.csv entsoe_hr_schedules.csv; do
+          for f in entsoe_load_forecast.csv entsoe_hr_schedules.csv; do
             [ -f "$f" ] && git add "$f"
           done
           if git diff --staged --quiet; then
