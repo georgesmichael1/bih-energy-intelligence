@@ -62,6 +62,10 @@ def text(node, path):
         raise DataError('Missing required XML field: ' + path)
     return value.strip()
 
+def _safe_text(value):
+    # Keep only plain letters, digits and simple punctuation, and cut it short.
+    # This stops URLs, XML and anything else from reaching the log.
+    return re.sub(r"[^A-Za-z0-9 .,:()\-]", '', value).strip()[:150]
 
 def parse_document(body, dataset, source, target, start, end, fetched_at):
     if b'<!DOCTYPE' in body.upper() or b'<!ENTITY' in body.upper():
@@ -71,9 +75,10 @@ def parse_document(body, dataset, source, target, start, end, fetched_at):
     except ET.ParseError as exc:
         raise DataError('Invalid XML') from exc
     if root.tag.split('}')[-1] == 'Acknowledgement_MarketDocument':
-        # The free-text reason may contain request details. Do not log it.
-        codes = [n.text for n in root.findall('.//{*}Reason/{*}code')]
-        raise DataError('API acknowledgement, code ' + ','.join(codes))
+        codes = [n.text or '' for n in root.findall('.//{*}Reason/{*}code')]
+        reasons = [n.text or '' for n in root.findall('.//{*}Reason/{*}text')]
+        raise DataError('API acknowledgement, code ' + ','.join(codes) +
+                        ': ' + _safe_text(' '.join(reasons)))
     expected_type = {'load_forecast': 'A65', 'physical_flows': 'A11',
                      'hr_schedules': 'A09'}[dataset]
     if text(root, '{*}type') != expected_type:
@@ -255,7 +260,7 @@ def update_entsoe(output_dir='.', day=None, session=None, token=None):
             except (APIError, DataError) as exc:
                 # These messages are fixed strings from this code, or ENTSO-E reason
                 # codes. They never contain the token or raw response text.
-                record(name, 'FAILED', detail='Request/validation failed: ' + str(exc), **meta)
+                record(name, 'FAILED', detail='Request/validation failed: ' + str(exc).replace(token, '[redacted]'), **meta)
             except (ValueError, OSError, KeyError, TypeError) as exc:
                 # Generic errors may echo input text, so only the type name is recorded.
                 record(name, 'FAILED', detail='Fetch/validation/write failed: ' + type(exc).__name__, **meta)
