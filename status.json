@@ -1,57 +1,66 @@
 {
   "schema_version": 2,
-  "run_finished_at": "2026-11-24T10:39:32+00:00",
+  "run_finished_at": "2026-11-24T11:19:04+00:00",
   "last_verified_date": "24 Nov 2026",
   "last_verified_date_is_legacy": true,
   "verification_note": "No whole-master verification performed; use dataset_details.",
   "rows": 487,
   "nos_source": "admin-ajax",
-  "nos_fetched_at": "2026-11-24T11:37+01:00",
+  "nos_fetched_at": "2026-11-24T12:15+01:00",
+  "nos_last_attempt_at": "2026-11-24T12:15+01:00",
+  "nos_last_successful_fetch_at": "2026-11-24T12:15+01:00",
   "nos_days_requested": 2,
-  "nos_days_failed": [
-    "2026-11-24: HTTPSConnectionPool(host='www.nosbih.ba', port=443): Read timed out.",
-    "2026-11-23: HTTPSConnectionPool(host='www.nosbih.ba', port=443): Read timed out."
-  ],
+  "nos_days_succeeded": 2,
+  "nos_days_failed": [],
+  "nos_error_counts": {},
   "nos_rows": 720,
-  "nos_latest_actual": "2026-11-24 04:00",
-  "flows_error": "Fetch failed",
+  "nos_latest_actual": "2026-11-24 11:00",
+  "flows_timestamp": "2026-11-24 12:09",
+  "flows_checks_ok": true,
+  "flows_rows": 12,
+  "flows_last_attempt_at": "2026-11-24T12:18+01:00",
+  "flows_last_successful_fetch_at": "2026-11-24T12:18+01:00",
   "datasets": {
     "balancing": "FAILED: STATIC_REFERENCE: Activity and price values read from NOS report, August 2025; SERC caps not in report",
     "fx": "OK",
     "population": "OK",
     "bhas": "OK",
     "worldbank": "OK",
-    "nos": "FAILED: PARTIAL: One or more NOS day requests failed",
+    "nos": "OK",
     "dam": "FAILED: UNVERIFIED: Legacy positional price parser disabled for publication",
-    "flows": "FAILED: FAILED: ConnectionError"
+    "flows": "OK"
   },
   "dataset_details": {
     "balancing": {
       "state": "STATIC_REFERENCE",
-      "checked_at": "2026-11-24T10:37:09+00:00",
+      "checked_at": "2026-11-24T11:15:52+00:00",
+      "last_attempt_at": "2026-11-24T11:15:52+00:00",
       "detail": "Activity and price values read from NOS report, August 2025; SERC caps not in report",
       "source": "https://www.nosbih.ba/files/balansno/izvjestaji/mjeseci/202508-en-balansno-trziste-izvjestaj.pdf",
       "last_success_at": null
     },
     "fx": {
       "state": "OK",
-      "checked_at": "2026-11-24T10:37:09+00:00",
+      "checked_at": "2026-11-24T11:15:53+00:00",
+      "last_attempt_at": "2026-11-24T11:15:53+00:00",
       "detail": "Rates and publication date read from CBBH page",
       "source": "https://cbbh.ba/CurrencyExchange/",
       "source_date": "2026-11-24",
-      "last_success_at": "2026-11-24T10:37:09+00:00"
+      "last_success_at": "2026-11-24T11:15:53+00:00"
     },
     "population": {
       "state": "OK",
-      "checked_at": "2026-11-24T10:37:10+00:00",
+      "checked_at": "2026-11-24T11:15:53+00:00",
+      "last_attempt_at": "2026-11-24T11:15:53+00:00",
       "detail": "Page values parsed",
       "source": "https://www.worldometers.info/world-population/bosnia-and-herzegovina-population/",
       "source_as_of": null,
-      "last_success_at": "2026-11-24T10:37:10+00:00"
+      "last_success_at": "2026-11-24T11:15:53+00:00"
     },
     "bhas": {
       "state": "OK",
-      "checked_at": "2026-11-24T10:37:13+00:00",
+      "checked_at": "2026-11-24T11:15:55+00:00",
+      "last_attempt_at": "2026-11-24T11:15:55+00:00",
       "detail": "Headline KPIs read from BHAS page with reference periods",
       "source": "https://bhas.gov.ba/?lang=en",
       "periods": {
@@ -62,11 +71,12 @@
         "Imports_Goods_I_IX_Thousand_BAM": "I-IX, 2026",
         "Exports_Goods_I_IX_Thousand_BAM": "I-IX, 2026"
       },
-      "last_success_at": "2026-11-24T10:37:13+00:00"
+      "last_success_at": "2026-11-24T11:15:55+00:00"
     },
     "worldbank": {
       "state": "OK",
-      "checked_at": "2026-11-24T10:37:13+00:00",
+      "checked_at": "2026-11-24T11:15:55+00:00",
+      "last_attempt_at": "2026-11-24T11:15:55+00:00",
       "detail": "Historical values, not today's observation",
       "indicators_parsed": [
         "NE.EXP.GNFS.CD",
@@ -78,28 +88,42 @@
         2020,
         2025
       ],
-      "last_success_at": "2026-11-24T10:37:13+00:00"
+      "last_success_at": "2026-11-24T11:15:55+00:00"
     },
     "nos": {
-      "state": "PARTIAL",
-      "checked_at": "2026-11-24T10:38:46+00:00",
-      "detail": "One or more NOS day requests failed",
-      "latest_actual": "2026-11-24 04:00",
+      "state": "OK",
+      "checked_at": "2026-11-24T11:18:01+00:00",
+      "last_attempt_at": "2026-11-24T12:15+01:00",
+      "detail": "Historical requests completed; latest actual checked separately",
+      "latest_actual": "2026-11-24 11:00",
+      "last_successful_fetch_at": "2026-11-24T12:15+01:00",
+      "days_requested": 2,
+      "days_succeeded": 2,
+      "error_counts": {},
       "source": "https://www.nosbih.ba/en/ees/graf-potrosnje/",
       "dst_note": "Legacy Date/Hour feed is not DST-safe; ENTSO-E uses UTC",
-      "last_success_at": null
+      "last_success_at": "2026-11-24T11:18:01+00:00"
     },
     "dam": {
       "state": "UNVERIFIED",
-      "checked_at": "2026-11-24T10:38:46+00:00",
+      "checked_at": "2026-11-24T11:18:01+00:00",
+      "last_attempt_at": "2026-11-24T11:18:01+00:00",
       "detail": "Legacy positional price parser disabled for publication",
       "last_success_at": null
     },
     "flows": {
-      "state": "FAILED",
-      "checked_at": "2026-11-24T10:39:32+00:00",
-      "detail": "ConnectionError",
-      "last_success_at": null
+      "state": "OK",
+      "checked_at": "2026-11-24T11:19:04+00:00",
+      "last_attempt_at": "2026-11-24T12:18+01:00",
+      "detail": "Two-hour freshness ceiling; separate from historical ENTSO-E",
+      "last_successful_fetch_at": "2026-11-24T12:18+01:00",
+      "source": "https://www.nosbih.ba/en/ees/fizicki-tokovi/",
+      "flows_timestamp": "2026-11-24 12:09",
+      "flows_checks_ok": true,
+      "flows_rows": 12,
+      "flows_last_attempt_at": "2026-11-24T12:18+01:00",
+      "flows_last_successful_fetch_at": "2026-11-24T12:18+01:00",
+      "last_success_at": "2026-11-24T11:19:04+00:00"
     }
   }
 }
