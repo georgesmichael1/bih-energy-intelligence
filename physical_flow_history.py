@@ -105,6 +105,13 @@ def update(output_dir='.', now=None, session=None, token=None):
                 for r in incoming:
                     k=(source,target,r['Interval_Start_UTC']);prior=merged.get(k)
                     if prior and prior['Source_Document']==r['Source_Document'] and int(prior['Revision'])>int(r['Revision']):raise e.DataError('Revision regression')
+                # A day the source returned complete is authoritative: stale saved intervals of that
+                # direction-day are replaced. Partial or missing days are never deleted, only merged by key.
+                by_day={}
+                for r in incoming:by_day.setdefault(r['Interval_Start_Local'][:10],[]).append(r)
+                for d,rs in by_day.items():
+                    if complete(rs,dt.date.fromisoformat(d)):
+                        for k in [k for k,v in merged.items() if k[0]==source and k[1]==target and v['Interval_Start_Local'][:10]==d]:del merged[k]
                 for r in incoming:merged[source,target,r['Interval_Start_UTC']]=r
                 print(json.dumps(dict(direction=source+'>'+target,rows=len(incoming),elapsed_seconds=round(time.monotonic()-begin,2))),flush=True)
             except e.StopAPI:
