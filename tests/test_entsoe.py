@@ -237,4 +237,4 @@ class AreaCodeTests(unittest.TestCase):
     def test_bosnia_eic_literal(self):
         # Literal check: the mocks read AREAS, so a wrong constant would otherwise pass.
         import entsoe_adapter as e
-        self.assertEqual(e.AREAS['BA'], '10YBA-JPCC-----B')
+        self.assertEqual(e.AREAS['BA'], '10YBA-JPCC-----D')
