@@ -257,19 +257,21 @@ class BackfillTests(unittest.TestCase):
             ps.DATASETS.clear()
             e.update_entsoe(tmp,session=session,token='dummy',include_physical=False)
             st=ps.DATASETS['entsoe_load_forecast']
-            self.assertEqual(st['state'],'PARTIAL');self.assertEqual(st['unavailable_days'],[(yesterday-dt.timedelta(days=3)).isoformat()])
-            self.assertEqual(len(st['recovered_days']),28)
+            self.assertEqual(st['state'],'PARTIAL');self.assertIn((yesterday-dt.timedelta(days=3)).isoformat(),st['unavailable_days'])
+            self.assertEqual(len(st['recovered_days']),9)   # newest 10 attempted, one of them unavailable
+            self.assertEqual(len(st['unavailable_days']),1+19)  # 1 failed + 19 not yet attempted, all reported
             rows=list(__import__('csv').DictReader(open(Path(tmp)/'entsoe_load_forecast.csv')))
-            self.assertEqual(len({r['Interval_Start_Local'][:10] for r in rows}),29)  # 30 days minus the unavailable one
+            self.assertEqual(len({r['Interval_Start_Local'][:10] for r in rows}),10)  # yesterday + 9 recovered
             self.assertTrue(all(float(r['Value_MW'])>=0 for r in rows))
-            before=Path(tmp,'entsoe_load_forecast.csv').read_text()
-            bad.clear(); session.get.reset_mock()
-            e.update_entsoe(tmp,session=session,token='dummy',include_physical=False)
+            bad.clear()
+            for _ in range(3):
+                e.update_entsoe(tmp,session=session,token='dummy',include_physical=False)
             self.assertEqual(ps.DATASETS['entsoe_load_forecast']['state'],'OK')
-            # complete days are not refetched: yesterday + the one missing day only
-            self.assertEqual(session.get.call_count,1+1+2+2)  # load: yesterday + 1 gap; HR: yesterday + 1 gap, 2 directions each
             rows=list(__import__('csv').DictReader(open(Path(tmp)/'entsoe_load_forecast.csv')))
-            self.assertEqual(len({r['Interval_Start_Local'][:10] for r in rows}),30)
+            self.assertEqual(len({r['Interval_Start_Local'][:10] for r in rows}),30)  # yesterday + 29 earlier days
+            session.get.reset_mock()
+            e.update_entsoe(tmp,session=session,token='dummy',include_physical=False)
+            self.assertEqual(session.get.call_count,1+2)  # complete window: only yesterday is refreshed (load 1, HR 2)
 
     @patch('entsoe_adapter.time.sleep')
     def test_failed_yesterday_keeps_saved_and_failed(self,_):
