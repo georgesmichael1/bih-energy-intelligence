@@ -1,0 +1,53 @@
+"""Per-dataset run state. A fetch timestamp is not a source verification date."""
+import datetime as dt
+import json
+import os
+from pathlib import Path
+
+DATASETS = {}
+
+def utc_now():
+    return dt.datetime.now(dt.timezone.utc).isoformat(timespec='seconds')
+
+def record(name, state, *, detail='', **metadata):
+    DATASETS[name] = {'state': state, 'checked_at': utc_now(), 'detail': detail, **metadata}
+
+def atomic_text(path, text):
+    path = Path(path)
+    tmp = path.with_name(path.name + '.tmp')
+    tmp.write_text(text, encoding='utf-8')
+    os.replace(tmp, path)
+
+def write_status(path, *, rows=None, legacy=None):
+    try:
+        old = json.loads(Path(path).read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        old = {}
+    previous = old.get('dataset_details', {})
+    for name, item in DATASETS.items():
+        prior = previous.get(name, {})
+        item['last_success_at'] = (item['checked_at'] if item['state'] == 'OK'
+                                   else prior.get('last_success_at'))
+    payload = {
+        'schema_version': 2,
+        'run_finished_at': utc_now(),
+        # Kept for legacy VBA, deliberately not restamped from today's run.
+        'last_verified_date': old.get('last_verified_date', ''),
+        'last_verified_date_is_legacy': True,
+        'verification_note': 'No whole-master verification performed; use dataset_details.',
+        'rows': rows if rows is not None else old.get('rows'),
+        **(legacy or {}),
+        'datasets': {k: (v['state'] if v['state'] == 'OK' else
+                          'FAILED: ' + v['state'] + ': ' + v['detail'])
+                     for k, v in DATASETS.items()},
+        'dataset_details': DATASETS,
+    }
+    atomic_text(path, json.dumps(payload, indent=2, allow_nan=False) + '\n')
+    return payload
+
+def problems(status):
+    issues = [f'{k}: {v}' for k, v in status.get('datasets', {}).items()
+              if v != 'OK' and status.get('dataset_details', {}).get(k, {}).get('state') != 'STATIC_REFERENCE']
+    if not status.get('datasets'):
+        issues.append('Dataset state missing')
+    return issues
