@@ -23,7 +23,7 @@ from pipeline_status import atomic_text, record, utc_now
 ENDPOINT = 'https://web-api.tp.entsoe.eu/api'
 TZ = ZoneInfo('Europe/Sarajevo')
 UTC = dt.timezone.utc
-AREAS = {'BA': '10YBA-JPCC-----B', 'HR': '10YHR-HEP------M',
+AREAS = {'BA': '10YBA-JPCC-----D', 'HR': '10YHR-HEP------M',
          'RS': '10YCS-SERBIATSOV', 'ME': '10YCS-CG-TSO---S'}
 COLUMNS = ['Dataset', 'From_Area', 'To_Area', 'Interval_Start_UTC',
            'Interval_End_UTC', 'Interval_Start_Local', 'Resolution', 'Value_MW',
