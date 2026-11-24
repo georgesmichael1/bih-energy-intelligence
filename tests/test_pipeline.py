@@ -172,6 +172,22 @@ class PipelineTests(unittest.TestCase):
             self.assertIn("3,000,002", result.iloc[0]["Tariff_Price_Rate_Value"])
             self.assertEqual(result.iloc[0]["Secondary_Value"], "historical narrative")
 
+    def test_nos_transport_defaults_to_cffi_with_no_nested_retries(self):
+        with patch.object(u, "HAS_CFFI", True), \
+             patch.dict(os.environ, {}, clear=True), \
+             patch.object(u, "create_resilient_session") as factory:
+            self.assertIs(u.create_nos_session(), factory.return_value)
+            factory.assert_called_once_with(retries=0, backoff_factor=1.0, use_cffi=True)
+
+    def test_nos_transport_explicit_requests_or_missing_cffi(self):
+        for available, setting in [(True, "0"), (False, "1")]:
+            with self.subTest(available=available, setting=setting), \
+                 patch.object(u, "HAS_CFFI", available), \
+                 patch.dict(os.environ, {"NOS_USE_CFFI": setting}), \
+                 patch.object(u, "create_resilient_session") as factory:
+                u.create_nos_session()
+                factory.assert_called_once_with(retries=0, backoff_factor=1.0, use_cffi=False)
+
     def test_fetch_nos_day_success_and_enforces_tls_verify(self):
         session = MagicMock()
         resp = MagicMock()
