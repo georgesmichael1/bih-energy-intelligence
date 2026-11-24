@@ -176,7 +176,8 @@ def _saved_complete_days(prior, market, days):
         try:
             if (rows and dt.datetime.fromisoformat(rows[0]["Interval_Start_UTC"]) == start
                     and dt.datetime.fromisoformat(rows[-1]["Interval_End_UTC"]) == end
-                    and all(a["Interval_End_UTC"] == b["Interval_Start_UTC"] for a, b in zip(rows, rows[1:]))):
+                    and all(a["Interval_End_UTC"] == b["Interval_Start_UTC"] for a, b in zip(rows, rows[1:]))
+                    and all(r.get("Fetched_At") for r in rows)):
                 done.add(day)
         except ValueError:
             pass
