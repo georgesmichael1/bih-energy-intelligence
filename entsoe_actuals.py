@@ -25,11 +25,12 @@ GEN_COLS = ['Dataset', 'Area', 'PSR_Code', 'PSR_Type', 'Flow', 'Interval_Start_U
 WINDOW_DAYS = 31
 
 
-def _periods(ts, start, end):
+def _periods(ts, start, end, allow_negative=False):
     """Yield (left, right, resolution, value) for every published point; A01 curves only."""
     if text(ts, '{*}quantity_Measure_Unit.name') != 'MAW':
         raise DataError('Unexpected unit, MW required')
-    if text(ts, '{*}curveType') != 'A01':
+    curve = text(ts, '{*}curveType')
+    if curve not in ('A01', 'A03'):
         raise DataError('Unsupported curve type')
     for period in ts.findall('{*}Period'):
         pstart = instant(text(period, '{*}timeInterval/{*}start'))
@@ -42,17 +43,28 @@ def _periods(ts, start, end):
         count, rem = divmod(pend - pstart, step)
         if rem or count <= 0 or count > 10000:
             raise DataError('Invalid Period bounds')
-        seen = set()
+        points = {}
         for point in period.findall('{*}Point'):
             pos = int(text(point, '{*}position'))
             val = float(text(point, '{*}quantity'))
-            if pos in seen or not 1 <= pos <= count or not math.isfinite(val) or val < 0:
+            if pos in points or not 1 <= pos <= count or not math.isfinite(val) or (val < 0 and not allow_negative):
                 raise DataError('Duplicate/invalid position or quantity')
-            seen.add(pos)
+            points[pos] = val
+        if curve == 'A03':
+            # Variable-sized blocks: a value holds until the next stated position.
+            if points and 1 not in points:
+                raise DataError('Missing first block')
+            current = None
+            order = range(1, count + 1) if points else []
+        else:
+            order = sorted(points)
+        for pos in order:
+            if pos in points:
+                current = points[pos]
             left = pstart + step * (pos - 1)
             if left < start or left + step > end:
                 raise DataError('Point outside requested window')
-            yield left, left + step, resolution, val
+            yield left, left + step, resolution, current
 
 
 def _root(body, expected_type):
@@ -109,7 +121,7 @@ def parse_generation(body, start, end, fetched_at):
             flow = 'consumption'
         else:
             raise DataError('Unexpected generation area')
-        for left, right, res, val in _periods(ts, start, end):
+        for left, right, res, val in _periods(ts, start, end, allow_negative=True):
             key = (code, flow, left)
             if key in rows:
                 raise DataError('Overlapping Periods')
