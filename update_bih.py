@@ -4,11 +4,9 @@ import re
 import json
 import time
 import datetime
-
 from pipeline_status import DATASETS, record, write_status, utc_now
 from urllib.parse import urljoin, urlencode
 from zoneinfo import ZoneInfo
-
 import requests as std_requests
 from requests.adapters import HTTPAdapter
 from urllib3.util import Retry
@@ -23,6 +21,7 @@ try:
     from curl_cffi import requests as cffi_requests
     HAS_CFFI = True
 except ImportError:
+    cffi_requests = None
     HAS_CFFI = False
 
 HEADERS = {
@@ -54,7 +53,7 @@ def create_resilient_session(retries=3, backoff_factor=1.5, use_cffi=False):
 
 
 def safe_get(session, url, timeout_tuple=(10, 45)):
-    if HAS_CFFI and isinstance(session, cffi_requests.Session):
+    if HAS_CFFI and cffi_requests is not None and isinstance(session, cffi_requests.Session):
         return session.get(url, headers=HEADERS, timeout=timeout_tuple, verify=True)
     return session.get(url, headers=HEADERS, timeout=timeout_tuple, verify=True)
 
@@ -102,7 +101,8 @@ NOS_AJAX_URL = "https://www.nosbih.ba/en/wp-admin/admin-ajax.php"
 NOS_HOURLY_CSV = "nos_hourly.csv"
 NOS_TZ = ZoneInfo("Europe/Sarajevo")
 HISTORY_DAYS = 30
-
+NOS_TIMEOUT = (10, 30)
+NOS_MAX_ATTEMPTS = 2
 NOS_VALUE_COLS = [
     "Planned_Production_MW",
     "Actual_Production_MW",
@@ -113,7 +113,127 @@ NOS_COLS = ["Date", "Hour"] + NOS_VALUE_COLS + ["Fetched_At"]
 
 
 class NosError(RuntimeError):
-    pass
+    def __init__(self, message: str, *, kind: str = "NOS_ERROR", status_code: int | None = None):
+        super().__init__(message)
+        self.kind = kind
+        self.status_code = status_code
+
+
+class NosTimeoutError(NosError):
+    def __init__(self, message: str):
+        super().__init__(message, kind="TIMEOUT")
+
+
+class NosConnectionError(NosError):
+    def __init__(self, message: str):
+        super().__init__(message, kind="CONNECTION_ERROR")
+
+
+class NosHttpError(NosError):
+    def __init__(self, message: str, *, status_code: int | None = None):
+        super().__init__(message, kind="HTTP_ERROR", status_code=status_code)
+
+
+class NosParseError(NosError):
+    def __init__(self, message: str):
+        super().__init__(message, kind="PARSE_ERROR")
+
+
+def _classify_nos_exception(exc: Exception, context: str) -> NosError:
+    if isinstance(exc, NosError):
+        return exc
+    exc_name = type(exc).__name__.lower()
+    if isinstance(exc, std_requests.exceptions.HTTPError):
+        code = getattr(getattr(exc, "response", None), "status_code", None)
+        return NosHttpError(f"{context}: HTTP {code or 'error'}: {exc}", status_code=code)
+    if isinstance(exc, (std_requests.exceptions.Timeout, TimeoutError)) or "timeout" in exc_name:
+        return NosTimeoutError(f"{context}: timeout ({type(exc).__name__}): {exc}")
+    if isinstance(exc, (std_requests.exceptions.ConnectionError, ConnectionError)) or "connection" in exc_name:
+        return NosConnectionError(f"{context}: connection error ({type(exc).__name__}): {exc}")
+    if isinstance(exc, std_requests.exceptions.RequestException):
+        return NosConnectionError(f"{context}: request error ({type(exc).__name__}): {exc}")
+    return NosError(f"{context}: {type(exc).__name__}: {exc}", kind=type(exc).__name__)
+
+
+def _nos_request(
+    session,
+    method: str,
+    url: str,
+    *,
+    headers: dict,
+    data: dict | None = None,
+    timeout_tuple: tuple[int, int] = NOS_TIMEOUT,
+    max_attempts: int = NOS_MAX_ATTEMPTS,
+    context: str = "NOS request",
+):
+    """Execute a verified HTTPS request with limited retries and error classification.
+
+    Never disables TLS verification (verify=True is strictly enforced).
+    If the primary requests session fails with a timeout or connection error and
+    curl_cffi is available, tries one verified fallback attempt with curl_cffi
+    to handle potential TLS/WAF fingerprint sensitivity on www.nosbih.ba.
+    """
+    last_err = None
+    attempts = max(1, int(max_attempts))
+    for attempt in range(1, attempts + 1):
+        try:
+            if method.upper() == "POST":
+                resp = session.post(
+                    url, headers=headers, data=data, timeout=timeout_tuple, verify=True
+                )
+            else:
+                resp = safe_get(session, url, timeout_tuple=timeout_tuple)
+            status_code = getattr(resp, "status_code", None)
+            if status_code is not None and int(status_code) >= 400:
+                raise NosHttpError(
+                    f"{context}: HTTP {status_code}", status_code=int(status_code)
+                )
+            resp.raise_for_status()
+            return resp
+        except Exception as exc:
+            classified = _classify_nos_exception(exc, context)
+            last_err = classified
+            if isinstance(classified, NosHttpError) and classified.status_code is not None:
+                if 400 <= classified.status_code < 500 and classified.status_code != 429:
+                    raise classified from exc
+            if attempt < attempts:
+                time.sleep(0.5 * attempt)
+
+    is_cffi_session = (
+        HAS_CFFI and cffi_requests is not None and isinstance(session, cffi_requests.Session)
+    )
+    if (
+        HAS_CFFI
+        and not is_cffi_session
+        and isinstance(last_err, (NosTimeoutError, NosConnectionError))
+        and os.environ.get("NOS_DISABLE_CFFI_FALLBACK") != "1"
+    ):
+        cffi_sess = None
+        try:
+            cffi_sess = create_resilient_session(retries=1, backoff_factor=1.0, use_cffi=True)
+            if method.upper() == "POST":
+                resp = cffi_sess.post(
+                    url, headers=headers, data=data, timeout=timeout_tuple, verify=True
+                )
+            else:
+                resp = safe_get(cffi_sess, url, timeout_tuple=timeout_tuple)
+            status_code = getattr(resp, "status_code", None)
+            if status_code is not None and int(status_code) >= 400:
+                raise NosHttpError(
+                    f"{context}: HTTP {status_code}", status_code=int(status_code)
+                )
+            resp.raise_for_status()
+            return resp
+        except Exception as cffi_exc:
+            last_err = _classify_nos_exception(cffi_exc, f"{context} (cffi fallback)")
+        finally:
+            if cffi_sess is not None and hasattr(cffi_sess, "close"):
+                try:
+                    cffi_sess.close()
+                except Exception:
+                    pass
+
+    raise last_err
 
 
 def _sarajevo_today() -> datetime.date:
@@ -133,8 +253,7 @@ def parse_nos_table(html: str, day: datetime.date) -> pd.DataFrame:
     soup = BeautifulSoup(html, "lxml")
     table = soup.find("table", id="productionTable")
     if table is None:
-        raise NosError("productionTable not found in admin-ajax response")
-
+        raise NosParseError("productionTable not found in admin-ajax response")
     rows = []
     for tr in table.select("tbody tr"):
         tds = tr.find_all("td")
@@ -143,19 +262,21 @@ def parse_nos_table(html: str, day: datetime.date) -> pd.DataFrame:
         t = tds[0].get_text(strip=True)
         if ":" not in t:
             continue
-        hour = int(t.split(":")[0])
+        try:
+            hour = int(t.split(":")[0])
+        except ValueError as e:
+            raise NosParseError(f"invalid hour token '{t}' in productionTable") from e
         hour = 24 if hour == 0 else hour        # "00:00" is hour 24
         rows.append({
             "Date": day,
             "Hour": hour,
-            "Planned_Production_MW": _num(tds[1].get_text()),
-            "Actual_Production_MW": _num(tds[2].get_text()),
-            "Planned_Consumption_MW": _num(tds[3].get_text()),
-            "Actual_Consumption_MW": _num(tds[4].get_text()),
+            "Planned_Production_MW": _num(tds.get_text()),
+            "Actual_Production_MW": _num(tds.get_text()),
+            "Planned_Consumption_MW": _num(tds.get_text()),
+            "Actual_Consumption_MW": _num(tds.get_text()),
         })
-
     if not rows:
-        raise NosError("productionTable has no data rows")
+        raise NosParseError("productionTable has no data rows")
     return pd.DataFrame(rows)
 
 
@@ -173,18 +294,25 @@ def fetch_nos_day(session, day: datetime.date) -> pd.DataFrame:
         "action": "production",
         "production": urlencode({"date": date_str}),
     }
-    resp = session.post(NOS_AJAX_URL, headers=headers, data=data, timeout=(10, 45))
-    resp.raise_for_status()
-
+    resp = _nos_request(
+        session,
+        "POST",
+        NOS_AJAX_URL,
+        headers=headers,
+        data=data,
+        timeout_tuple=NOS_TIMEOUT,
+        max_attempts=NOS_MAX_ATTEMPTS,
+        context=f"NOS dispatch {date_str}",
+    )
     try:
         payload = resp.json()
     except ValueError as e:
-        raise NosError(f"admin-ajax did not return JSON for {date_str}") from e
-
+        raise NosParseError(f"admin-ajax did not return JSON for {date_str}") from e
     html = payload.get("data") if isinstance(payload, dict) else None
-    if not html:
-        raise NosError(f"admin-ajax returned no data for {date_str}")
+    if not html or not isinstance(html, str):
+        raise NosParseError(f"admin-ajax returned no data for {date_str}")
     return parse_nos_table(html, day)
+
 
 def load_nos_history() -> pd.DataFrame:
     if os.path.exists(NOS_HOURLY_CSV):
@@ -206,62 +334,119 @@ def merge_nos(hist: pd.DataFrame, new: pd.DataFrame) -> pd.DataFrame:
             m[c] = m[c + "_new"].where(m[c + "_new"].notna(), m[c + "_old"])
         m["Fetched_At"] = m["Fetched_At_new"].fillna(m["Fetched_At_old"])
         merged = m[NOS_COLS]
-
     cutoff = _sarajevo_today() - datetime.timedelta(days=HISTORY_DAYS - 1)
     merged = merged[merged["Date"] >= cutoff]
     return merged.sort_values(["Date", "Hour"]).reset_index(drop=True)
 
 
+def _latest_fetched_at(df: pd.DataFrame) -> str | None:
+    if df is None or df.empty or "Fetched_At" not in df.columns:
+        return None
+    valid = df["Fetched_At"].dropna().astype(str)
+    valid = valid[valid.str.strip() != ""]
+    return str(valid.max()) if len(valid) else None
+
+
 def update_nos_history() -> dict:
     # Fetch the 30-day window: all days missing from history, plus today and yesterday (actuals keep arriving).
     hist = load_nos_history()
-    session = create_resilient_session(retries=2, backoff_factor=1.5)
-    stamp = datetime.datetime.now(NOS_TZ).isoformat(timespec="minutes")
+    prefer_cffi = os.environ.get("NOS_USE_CFFI") == "1"
+    session = create_resilient_session(retries=1, backoff_factor=1.0, use_cffi=prefer_cffi)
+    attempt_stamp = datetime.datetime.now(NOS_TZ).isoformat(timespec="minutes")
     today = _sarajevo_today()
-
     window = [today - datetime.timedelta(days=i) for i in range(HISTORY_DAYS)]
     have = set(hist["Date"]) if len(hist) else set()
     refetch = {today, today - datetime.timedelta(days=1)}
     todo = [d for d in window if d not in have or d in refetch]
-
     failed = []
-    for d in todo:
-        try:
-            df = fetch_nos_day(session, d)
-            df["Fetched_At"] = stamp
-            hist = merge_nos(hist, df)
-        except Exception as e:
-            failed.append(f"{d}: {e}")
-        time.sleep(1)                             # be polite to the server
+    error_counts: dict[str, int] = {}
+    succeeded_days = 0
 
-    hist.to_csv(NOS_HOURLY_CSV, index=False)
+    try:
+        for idx, d in enumerate(todo):
+            try:
+                df = fetch_nos_day(session, d)
+                df["Fetched_At"] = attempt_stamp
+                hist = merge_nos(hist, df)
+                succeeded_days += 1
+            except Exception as e:
+                classified = _classify_nos_exception(e, f"NOS day {d}")
+                error_counts[classified.kind] = error_counts.get(classified.kind, 0) + 1
+                failed.append(f"{d} [{classified.kind}]: {classified}")
+            if idx + 1 < len(todo):
+                time.sleep(1)                         # be polite to the server
+    finally:
+        if hasattr(session, "close"):
+            try:
+                session.close()
+            except Exception:
+                pass
 
-    with_actual = hist.dropna(subset=["Actual_Production_MW"])
+    # If every fetch failed, never rewrite the cached CSV on disk.
+    if succeeded_days > 0 or (not todo and not os.path.exists(NOS_HOURLY_CSV)):
+        hist.to_csv(NOS_HOURLY_CSV, index=False)
+
+    last_successful_fetch_at = (
+        attempt_stamp if succeeded_days > 0 else _latest_fetched_at(hist)
+    )
+
+    with_actual = hist.dropna(subset=["Actual_Production_MW"]) if len(hist) else pd.DataFrame()
     latest_actual = None
+    is_fresh = False
     if len(with_actual):
         last = with_actual.sort_values(["Date", "Hour"]).iloc[-1]
         latest_actual = f"{last['Date']} {int(last['Hour']):02d}:00"
-
-    state = "OK"
-    detail = "Historical requests completed; latest actual checked separately"
-    if latest_actual is None:
-        state, detail = "NO_DATA", "No actual production values"
-    else:
-        latest_row = with_actual.sort_values(["Date", "Hour"]).iloc[-1]
-        latest_end = (datetime.datetime.combine(latest_row["Date"], datetime.time(), NOS_TZ)
-                      + datetime.timedelta(hours=int(latest_row["Hour"])))
+        latest_end = (
+            datetime.datetime.combine(last["Date"], datetime.time(), NOS_TZ)
+            + datetime.timedelta(hours=int(last["Hour"]))
+        )
         age = (datetime.datetime.now(NOS_TZ) - latest_end).total_seconds()
-        if not 0 <= age <= 6 * 3600:
-            state, detail = "STALE", "Latest actual outside six-hour freshness ceiling"
-    if failed:
-        state, detail = "PARTIAL", "One or more NOS day requests failed"
-    record("nos", state, detail=detail, latest_actual=latest_actual,
-           source=NOS_PAGE, dst_note="Legacy Date/Hour feed is not DST-safe; ENTSO-E uses UTC")
+        is_fresh = 0 <= age <= 6 * 3600
+
+    if todo and succeeded_days == 0:
+        state = "FAILED"
+        detail = (
+            f"All {len(todo)} NOS day requests failed ({error_counts}); "
+            "cached CSV preserved without rewrite"
+        )
+    elif failed:
+        state = "PARTIAL"
+        detail = (
+            f"{succeeded_days}/{len(todo)} NOS day requests succeeded; "
+            f"{len(failed)} failed ({error_counts}); cached rows preserved"
+        )
+    elif latest_actual is None:
+        state = "NO_DATA"
+        detail = "No actual production values"
+    elif not is_fresh:
+        state = "STALE"
+        detail = "Latest actual outside six-hour freshness ceiling"
+    else:
+        state = "OK"
+        detail = "Historical requests completed; latest actual checked separately"
+
+    record(
+        "nos",
+        state,
+        detail=detail,
+        latest_actual=latest_actual,
+        last_attempt_at=attempt_stamp,
+        last_successful_fetch_at=last_successful_fetch_at,
+        days_requested=len(todo),
+        days_succeeded=succeeded_days,
+        error_counts=error_counts,
+        source=NOS_PAGE,
+        dst_note="Legacy Date/Hour feed is not DST-safe; ENTSO-E uses UTC",
+    )
     return {
         "nos_source": "admin-ajax",
-        "nos_fetched_at": stamp,
+        "nos_fetched_at": last_successful_fetch_at,
+        "nos_last_attempt_at": attempt_stamp,
+        "nos_last_successful_fetch_at": last_successful_fetch_at,
         "nos_days_requested": len(todo),
+        "nos_days_succeeded": succeeded_days,
         "nos_days_failed": failed,
+        "nos_error_counts": error_counts,
         "nos_rows": int(len(hist)),
         "nos_latest_actual": latest_actual,
     }
@@ -283,6 +468,7 @@ def nos_day_for_workbook(hist: pd.DataFrame, dam_curve):
         lambda h: 1 if ((7 <= h <= 13) or (16 <= h <= 22)) else 0
     )
     return day, latest
+
 
 # =============================================================================
 # CROSS-BORDER EXCHANGE (NOSBiH "Cross-border exchange" page)
@@ -333,7 +519,7 @@ def parse_flows_page(html: str) -> dict:
     def text_of(elem_id):
         el = soup.find(id=elem_id)
         if el is None:
-            raise NosError(f"'{elem_id}' not found on flows page")
+            raise NosParseError(f"'{elem_id}' not found on flows page")
         return el.get_text(strip=True)
 
     row = {}
@@ -341,27 +527,24 @@ def parse_flows_page(html: str) -> dict:
                                   ("Plan", "map-flow-planned", "planned")):
         svg = soup.find("svg", id=svg_id)
         if svg is None:
-            raise NosError(f"'{svg_id}' not found on flows page")
+            raise NosParseError(f"'{svg_id}' not found on flows page")
         shown = _flow_visible_arrows(svg)
-
         signed = {}
         for code in FLOW_CODES:
             mag = _flow_num(text_of(f"{prefix}-value-{code}"))
             if mag is None:
-                raise NosError(f"no {label} value for {code}")
+                raise NosParseError(f"no {label} value for {code}")
             if mag == 0:
                 signed[code] = 0.0
                 continue
             direction = shown.get(code)
             if direction is None:
-                raise NosError(f"no visible arrow direction for {label} {code}")
+                raise NosParseError(f"no visible arrow direction for {label} {code}")
             signed[code] = mag if direction == "out" else -mag
-
         net_calc = sum(signed.values())
         net_page = _flow_num(text_of(f"{prefix}-value-summary"))
         if net_page is None:
-            raise NosError(f"no {label} summary value")
-
+            raise NosParseError(f"no {label} summary value")
         for code in FLOW_CODES:
             row[f"{label}_{code.upper()}_Signed"] = signed[code]
         row[f"{label}_Net_Calc"] = net_calc
@@ -370,12 +553,12 @@ def parse_flows_page(html: str) -> dict:
 
     ace = _flow_num(text_of("ace-value"))
     if ace is None:
-        raise NosError("ACE value not parsed")
+        raise NosParseError("ACE value not parsed")
     row["ACE_MW"] = ace
 
     m = re.search(r"(\d{2}\.\d{2}\.\d{4})\.?\s+(\d{2}:\d{2})", text_of("flow-time"))
     if m is None:
-        raise NosError("flow-time not parsed")
+        raise NosParseError("flow-time not parsed")
     ts = datetime.datetime.strptime(f"{m.group(1)} {m.group(2)}", "%d.%m.%Y %H:%M")
     row["Timestamp"] = ts.strftime("%Y-%m-%d %H:%M")
     return row
@@ -390,29 +573,85 @@ def load_flows_history() -> pd.DataFrame:
 
 
 def update_flows_history() -> dict:
-    session = create_resilient_session(retries=2, backoff_factor=1.5)
-    resp = safe_get(session, f"{FLOWS_PAGE}?nocache={int(time.time())}", timeout_tuple=(10, 45))
-    resp.raise_for_status()
-    row = parse_flows_page(resp.text)
-    if not row["Act_Check"] or not row["Plan_Check"]:
-        raise NosError("Cross-border reconciliation failed; previous CSV retained")
-    row["Fetched_At"] = datetime.datetime.now(NOS_TZ).isoformat(timespec="minutes")
+    hist = load_flows_history()
+    prior_fetched_at = _latest_fetched_at(hist)
+    prior_timestamp = str(hist["Timestamp"].iloc[-1]) if len(hist) else None
+    attempt_stamp = datetime.datetime.now(NOS_TZ).isoformat(timespec="minutes")
+    prefer_cffi = os.environ.get("NOS_USE_CFFI") == "1"
+    session = create_resilient_session(retries=1, backoff_factor=1.0, use_cffi=prefer_cffi)
+    try:
+        resp = _nos_request(
+            session,
+            "GET",
+            f"{FLOWS_PAGE}?nocache={int(time.time())}",
+            headers=HEADERS,
+            timeout_tuple=NOS_TIMEOUT,
+            max_attempts=NOS_MAX_ATTEMPTS,
+            context="NOS cross-border flows",
+        )
+        row = parse_flows_page(resp.text)
+        if not row["Act_Check"] or not row["Plan_Check"]:
+            raise NosError(
+                "Cross-border reconciliation failed; previous CSV retained",
+                kind="RECONCILIATION_ERROR",
+            )
+    except Exception as exc:
+        classified = _classify_nos_exception(exc, "NOS cross-border flows")
+        record(
+            "flows",
+            "FAILED",
+            detail=f"{classified.kind}: {classified}",
+            error_kind=classified.kind,
+            last_attempt_at=attempt_stamp,
+            last_successful_fetch_at=prior_fetched_at,
+            flows_timestamp=prior_timestamp,
+            flows_rows=int(len(hist)),
+            source=FLOWS_PAGE,
+        )
+        raise classified from exc
+    finally:
+        if hasattr(session, "close"):
+            try:
+                session.close()
+            except Exception:
+                pass
+
+    row["Fetched_At"] = attempt_stamp
 
     # One row per page timestamp. A newer fetch of the same timestamp replaces the old row.
-    hist = load_flows_history()
     hist = hist[hist["Timestamp"] != row["Timestamp"]]
     hist = pd.concat([hist, pd.DataFrame([row], columns=FLOW_COLS)], ignore_index=True)
-
     cutoff = (_sarajevo_today() - datetime.timedelta(days=HISTORY_DAYS - 1)).strftime("%Y-%m-%d")
     hist = hist[hist["Timestamp"].str[:10] >= cutoff]
     hist = hist.sort_values("Timestamp").reset_index(drop=True)
     hist.to_csv(FLOWS_CSV, index=False)
 
-    return {
+    stamp = datetime.datetime.fromisoformat(row["Timestamp"]).replace(tzinfo=NOS_TZ)
+    age = (
+        datetime.datetime.now(NOS_TZ).astimezone(datetime.timezone.utc)
+        - stamp.astimezone(datetime.timezone.utc)
+    ).total_seconds()
+    checks_ok = bool(row["Act_Check"] and row["Plan_Check"])
+    state = "OK" if checks_ok and 0 <= age <= 7200 else "STALE_OR_INVALID"
+    result = {
         "flows_timestamp": row["Timestamp"],
-        "flows_checks_ok": bool(row["Act_Check"] and row["Plan_Check"]),
+        "flows_checks_ok": checks_ok,
         "flows_rows": int(len(hist)),
+        "flows_last_attempt_at": attempt_stamp,
+        "flows_last_successful_fetch_at": attempt_stamp,
     }
+    record(
+        "flows",
+        state,
+        detail="Two-hour freshness ceiling; separate from historical ENTSO-E",
+        last_attempt_at=attempt_stamp,
+        last_successful_fetch_at=attempt_stamp,
+        source=FLOWS_PAGE,
+        **result,
+    )
+    return result
+
+
 # =============================================================================
 # DAM reference curve (energy-charts.info). Returns None on failure, never a typed-in curve.
 # =============================================================================
@@ -591,7 +830,6 @@ def fetch_worldometer_bih_population():
                 if parsed_live and parsed_live > 2000000:
                     live_counter = parsed_live
                     live_parsed = True
-
             seen_years = set()
             for table in soup.find_all("table"):
                 for tr in table.find_all("tr"):
@@ -624,7 +862,6 @@ def fetch_worldometer_bih_population():
                 wm_rows.sort(key=lambda x: x["Year"])
     except Exception:
         pass
-
     if len(wm_rows) < 6:
         wm_rows = []
         for yr, pop, pct, chg, mig, age, fert, urb_sh, urb_p in fallback_wm:
@@ -639,7 +876,6 @@ def fetch_worldometer_bih_population():
                 "Urban_Share_Fraction": urb_sh,
                 "Urban_Population_Headcount": urb_p,
             })
-
     record("population", "OK" if live_parsed and table_parsed else "FALLBACK",
            detail="Page values parsed" if live_parsed and table_parsed else "Live counter or table uses typed-in fallback",
            source=url, source_as_of=None)
@@ -731,7 +967,6 @@ def fetch_worldbank_bih_macro(start_year=2020, end_year=2025):
                                 parsed_codes.add(code)
         except Exception:
             continue
-
     if not records:
         records = {
             2020: {"WB_Population_Headcount": 3299349.0, "GDP_USD_Million": 20220.0, "Exports_USD_Million": 6950.0, "Imports_USD_Million": 9880.0},
@@ -740,7 +975,6 @@ def fetch_worldbank_bih_macro(start_year=2020, end_year=2025):
             2023: {"WB_Population_Headcount": 3185073.0, "GDP_USD_Million": 27050.0, "Exports_USD_Million": 11150.0, "Imports_USD_Million": 15100.0},
             2024: {"WB_Population_Headcount": 3164253.0, "GDP_USD_Million": 28400.0, "Exports_USD_Million": 11400.0, "Imports_USD_Million": 15900.0},
         }
-
     record("worldbank", "OK" if len(parsed_codes) == len(indicators) else "PARTIAL_OR_FALLBACK",
            detail="Historical values, not today's observation", indicators_parsed=sorted(parsed_codes),
            requested_years=[start_year, end_year])
@@ -806,9 +1040,7 @@ def sync_github_master_csv(
     # 4. Dispatch rows (BIH-0488 onward) are stored in nos_hourly.csv, not here.
     from pipeline_status import atomic_text
     atomic_text(csv_path, df.to_csv(index=False))
-
     write_status(status_path, rows=len(df), legacy=nos_status)
-
     print(f"   [SUCCESS] Updated {csv_path} ({len(df)} rows) and {status_path}.")
 
 
@@ -830,11 +1062,9 @@ def build_bih_intelligence_workbook(
     f_header = Font(name=font_family, size=10, bold=True, color="FFFFFF")
     f_data = Font(name=font_family, size=10, bold=False)
     f_bold = Font(name=font_family, size=10, bold=True)
-
     fill_navy = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
     fill_banner = PatternFill(start_color="D9E1F2", end_color="D9E1F2", fill_type="solid")
     fill_input = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
-
     thin_border = Border(
         left=Side(style="thin", color="D9D9D9"),
         right=Side(style="thin", color="D9D9D9"),
@@ -869,14 +1099,12 @@ def build_bih_intelligence_workbook(
     # TAB 1: NOS_BiH_Dispatch_DAM (latest day in nos_hourly.csv, computed from data)
     ws1 = wb.active
     ws1.title = "NOS_BiH_Dispatch_DAM"
-
     plan_gen = nos_day_df["Planned_Production_MW"].sum(skipna=True)
     plan_cons = nos_day_df["Planned_Consumption_MW"].sum(skipna=True)
     net_plan = plan_gen - plan_cons
     dam_series = nos_day_df["DAM_Price_EUR_MWh"].dropna()
     dam_peak_txt = f"{dam_series.max():.2f} EUR/MWh" if len(dam_series) else "unavailable"
     day_txt = nos_day_date.isoformat() if nos_day_date else "no data yet"
-
     add_insight_block(
         ws1,
         f"NOS BiH planned generation for {day_txt} is {plan_gen:,.0f} MWh vs planned consumption of {plan_cons:,.0f} MWh "
@@ -886,7 +1114,6 @@ def build_bih_intelligence_workbook(
         f"NOS BiH Graph Consumption page (admin-ajax), fetched "
         f"{nos_status.get('nos_fetched_at', 'unknown')}. DAM reference: energy-charts.info (RS zone).",
     )
-
     inputs_t1 = (
         ("Currency Board Peg (BAM per EUR)", fx_data["EUR_BAM_Middle"], "0.00000"),
         ("CBBH Official Middle Rate (BAM per USD)", fx_data["USD_BAM_Middle"], "0.00000"),
@@ -904,7 +1131,6 @@ def build_bih_intelligence_workbook(
 
     ws1.cell(13, 1, "TABLE 1 (FEEDS CHART 1): HOURLY GENERATION, CONSUMPTION, DAY-AHEAD MARKET (DAM) & TARIFFS").font = f_banner
     ws1.cell(13, 1).fill = fill_banner
-
     headers_t1 = (
         "Hour Ending (Hour)",
         "Planned Generation (MW)",
@@ -926,12 +1152,10 @@ def build_bih_intelligence_workbook(
         c.font = f_header
         c.fill = fill_navy
         c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-
     ws1.freeze_panes = "A15"
     start_r1 = 15
     num_rows1 = len(nos_day_df)
     tot_r1 = start_r1 + num_rows1
-
     for i, row in nos_day_df.iterrows():
         r_idx = start_r1 + i
         ws1.cell(r_idx, 1, int(row["Hour_Index"])).number_format = "0"
@@ -990,7 +1214,6 @@ def build_bih_intelligence_workbook(
 
     ws2.cell(10, 1, "TABLE 2 (FEEDS CHART 2): NOS BIH BALANCING ENERGY (FCR, aFRR, mFRR) & SERC CAPS").font = f_banner
     ws2.cell(10, 1).fill = fill_banner
-
     headers_t2 = (
         "Balancing Reserve Product",
         "Direction Indicator (1=Up, -1=Down)",
@@ -1009,7 +1232,6 @@ def build_bih_intelligence_workbook(
         c.font = f_header
         c.fill = fill_navy
         c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-
     ws2.freeze_panes = "A12"
     start_r2 = 12
     tot_r2 = start_r2 + len(bal_df)
@@ -1039,6 +1261,7 @@ def build_bih_intelligence_workbook(
     ws2.cell(tot_r2, 11, f"=SUM(K{start_r2}:K{tot_r2-1})").number_format = "0.0%"
     for c_i in (3, 4, 5, 6, 7, 11):
         ws2.cell(tot_r2, c_i).font = f_bold
+
     rec_r2 = tot_r2 + 1
     ws2.cell(rec_r2, 1, "Reconciliation Check (Shares = 100%)").font = f_bold
     ws2.cell(rec_r2, 11, f"=ROUND(K{tot_r2},4)=1").font = f_bold
@@ -1085,6 +1308,7 @@ def build_bih_intelligence_workbook(
         for c_i in range(1, 6):
             ws3.cell(idx, c_i).font = f_data
             ws3.cell(idx, c_i).border = thin_border
+
     ws3.cell(16, 1, "Total_Trade_Volume_I_IX_2026").font = f_bold
     ws3.cell(16, 2, "=SUM(B14:B15)").number_format = "#,##0.00"
     ws3.cell(16, 3, "=SUM(C14:C15)").number_format = "#,##0.00"
@@ -1092,12 +1316,14 @@ def build_bih_intelligence_workbook(
     ws3.cell(16, 5, "=SUM(E14:E15)").number_format = "0.0%"
     for c_i in range(2, 6):
         ws3.cell(16, c_i).font = f_bold
+
     ws3.cell(17, 1, "Net_Trade_Balance_I_IX_2026").font = f_bold
     ws3.cell(17, 2, "=B14-B15").number_format = "#,##0.00"
     ws3.cell(17, 3, "=C14-C15").number_format = "#,##0.00"
     ws3.cell(17, 4, "=D14-D15").number_format = "#,##0.00"
     for c_i in range(2, 5):
         ws3.cell(17, c_i).font = f_bold
+
     ws3.cell(18, 1, "Reconciliation Check (Shares = 100%)").font = f_bold
     ws3.cell(18, 5, "=ROUND(E16,4)=1").font = f_bold
 
@@ -1180,6 +1406,7 @@ def build_bih_intelligence_workbook(
         cell = ws4.cell(tot_r4, col_i, f"=SUM({col_let}{start_r4}:{col_let}{tot_r4-1})")
         cell.font = f_bold
         cell.number_format = "#,##0" if col_i in (5, 6) else "#,##0.00"
+
     rec_r4 = tot_r4 + 1
     ws4.cell(rec_r4, 1, "Reconciliation Check (Urban + Rural = Total)").font = f_bold
     ws4.cell(rec_r4, 11, f"=ROUND(J{tot_r4}+K{tot_r4},0)=ROUND(B{tot_r4},0)").font = f_bold
@@ -1237,7 +1464,8 @@ def main():
         try:
             return func()
         except Exception as exc:
-            record(name, "FAILED", detail=type(exc).__name__)
+            if name not in DATASETS:
+                record(name, "FAILED", detail=type(exc).__name__)
             return default
 
     df_bal = call("balancing", fetch_nosbih_balancing_prices, pd.DataFrame())
@@ -1246,14 +1474,17 @@ def main():
                               (None, pd.DataFrame(columns=["Year"])))
     bhas_data = call("bhas", fetch_bhas_headline_kpis, {})
     wb_macro = call("worldbank", fetch_worldbank_bih_macro, pd.DataFrame())
+
     nos_status = call("nos", update_nos_history, {"nos_error": "Fetch failed"})
     if "nos" not in DATASETS:
         record("nos", "FAILED" if nos_status.get("nos_days_failed") else "OK",
                detail="See NOS request metadata", **nos_status)
+
     # Existing DAM parser drops timestamps and cannot prove a delivery day.
     # Disable publication until a timestamp-aware adapter is reviewed.
     record("dam", "UNVERIFIED", detail="Legacy positional price parser disabled for publication")
     dam_curve = None
+
     flows_status = call("flows", update_flows_history, {"flows_error": "Fetch failed"})
     if "flows" not in DATASETS:
         stamp = datetime.datetime.fromisoformat(flows_status["flows_timestamp"]).replace(tzinfo=NOS_TZ)
@@ -1261,14 +1492,18 @@ def main():
         state = "OK" if flows_status.get("flows_checks_ok") and 0 <= age <= 7200 else "STALE_OR_INVALID"
         record("flows", state, detail="Two-hour freshness ceiling; separate from historical ENTSO-E", **flows_status)
     nos_status.update(flows_status)
+
     # ENTSO-E runs in its own daily workflow (entsoe_daily.yml), not here.
+
     try:
         sync_github_master_csv(dam_curve, fx_rates, wm_live, df_wm_pop, nos_status)
     except Exception as exc:
         record("master", "FAILED", detail=type(exc).__name__)
+
     # Status still lands if the master CSV is absent or sync failed.
     rows = len(pd.read_csv("bih_data.csv")) if os.path.exists("bih_data.csv") else None
     write_status("status.json", rows=rows, legacy=nos_status)
+
     if os.environ.get("BUILD_LEGACY_XLSX") == "1":
         nos_hist = load_nos_history()
         nos_day_df, nos_day_date = nos_day_for_workbook(nos_hist, dam_curve)
