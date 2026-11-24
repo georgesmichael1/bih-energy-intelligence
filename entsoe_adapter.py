@@ -25,7 +25,6 @@ TZ = ZoneInfo('Europe/Sarajevo')
 UTC = dt.timezone.utc
 AREAS = {'BA': '10YBA-JPCC-----B', 'HR': '10YHR-HEP------M',
          'RS': '10YCS-SERBIATSOV', 'ME': '10YCS-CG-TSO---S'}
-NS = 'urn:iec62325.351:tc57wg16:451-5:statusrequestdocument:4:0'
 COLUMNS = ['Dataset', 'From_Area', 'To_Area', 'Interval_Start_UTC',
            'Interval_End_UTC', 'Interval_Start_Local', 'Resolution', 'Value_MW',
            'Source_Document', 'Revision', 'Fetched_At_UTC']
@@ -155,41 +154,23 @@ def parse_document(body, dataset, source, target, start, end, fetched_at):
     return rows
 
 
-def request_xml(parameters):
-    root = ET.Element('StatusRequest_MarketDocument', xmlns=NS)
-    fields = [('mRID', 'BiHFeed'), ('type', 'A59'),
-              ('sender_MarketParticipant.mRID', '10X1001A1001A450'),
-              ('sender_MarketParticipant.marketRole.type', 'A07'),
-              ('receiver_MarketParticipant.mRID', '10X1001A1001A450'),
-              ('receiver_MarketParticipant.marketRole.type', 'A32'),
-              ('createdDateTime', iso(dt.datetime.now(UTC)))]
-    for tag, value in fields:
-        node = ET.SubElement(root, tag)
-        node.text = value
-        if tag.endswith('.mRID'):
-            node.set('codingScheme', 'A01')
-    for key, value in parameters.items():
-        component = ET.SubElement(root, 'AttributeInstanceComponent')
-        ET.SubElement(component, 'attribute').text = key
-        ET.SubElement(component, 'attributeValue').text = value
-    return ET.tostring(root, encoding='utf-8', xml_declaration=True)
-
-
 def make_session():
     session = requests.Session()
     session.mount('https://', HTTPAdapter(max_retries=Retry(
         total=2, backoff_factor=1, status_forcelist=[500, 502, 503, 504],
-        allowed_methods=['POST'], raise_on_status=False)))
+        allowed_methods=['GET'], raise_on_status=False)))
     return session
 
 
 def fetch(session, token, parameters):
+    # ENTSO-E's Transparency API is a GET request. The token travels only as the
+    # securityToken query parameter and is never copied into an error message.
+    query = dict(parameters)
+    query['securityToken'] = token
     try:
-        response = session.post(ENDPOINT, data=request_xml(parameters),
-                                headers={'Content-Type': 'application/xml',
-                                         'Accept': 'application/xml', 'SECURITY_TOKEN': token},
-                                timeout=(10, 45), allow_redirects=False)
+        response = session.get(ENDPOINT, params=query, timeout=(10, 45), allow_redirects=False)
     except requests.RequestException:
+        # Discard the exception text: it can contain the full URL, including the token.
         raise APIError('Network request failed') from None
     if response.status_code in (401, 403, 429):
         raise StopAPI('Authentication/rate-limit HTTP ' + str(response.status_code))
@@ -251,14 +232,17 @@ def update_entsoe(output_dir='.', day=None, session=None, token=None):
             try:
                 rows = []
                 for source, target in directions:
-                    parameters = {'DocumentType': {'load_forecast': 'A65', 'physical_flows': 'A11', 'hr_schedules': 'A09'}[dataset],
-                                  'TimeInterval': start.strftime('%Y-%m-%dT%H:%MZ') + '/' + end.strftime('%Y-%m-%dT%H:%MZ')}
+                    parameters = {
+                        'documentType': {'load_forecast': 'A65', 'physical_flows': 'A11', 'hr_schedules': 'A09'}[dataset],
+                        'periodStart': start.strftime('%Y%m%d%H%M'),
+                        'periodEnd': end.strftime('%Y%m%d%H%M'),
+                    }
                     if dataset == 'load_forecast':
-                        parameters.update({'ProcessType': 'A01', 'OutBiddingZone_Domain': AREAS['BA']})
+                        parameters.update({'processType': 'A01', 'outBiddingZone_Domain': AREAS['BA']})
                     else:
-                        parameters.update({'In_Domain': AREAS[target], 'Out_Domain': AREAS[source]})
+                        parameters.update({'in_Domain': AREAS[target], 'out_Domain': AREAS[source]})
                         if dataset == 'hr_schedules':
-                            parameters['Contract_MarketAgreement.Type'] = 'A01'
+                            parameters['contract_MarketAgreement.type'] = 'A01'
                     body = fetch(session, token, parameters)
                     rows.extend(parse_document(body, dataset, source, target, start, end, utc_now()))
                     time.sleep(1)
