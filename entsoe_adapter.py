@@ -90,9 +90,17 @@ def parse_document(body, dataset, source, target, start, end, fetched_at):
     document = text(root, '{*}mRID')
     revision = int(text(root, '{*}revisionNumber'))
     series = root.findall('{*}TimeSeries')
+    if dataset == 'nominated_daily':
+        # The response can carry several series for one border direction (other
+        # business types or contract types). Keep only the total nominated
+        # capacity (B08) series; day-ahead/daily contract when it is stated.
+        series = [t for t in series if t.findtext('{*}businessType') in (None, 'B08') and
+                  t.findtext('{*}contract_MarketAgreement.type') in (None, 'A01')]
     # Do not silently add duplicate/alternative series or choose a revision.
     if len(series) != 1:
-        raise DataError('Expected exactly one aggregate directional series')
+        raise DataError('Expected exactly one aggregate directional series, found ' + str(len(series)) +
+                        ' (business types ' + _safe_text(','.join(sorted({t.findtext('{*}businessType') or '-' for t in root.findall('{*}TimeSeries')}))) +
+                        '; contract types ' + _safe_text(','.join(sorted({t.findtext('{*}contract_MarketAgreement.type') or '-' for t in root.findall('{*}TimeSeries')}))) + ')')
     ts = series[0]
     if text(ts, '{*}quantity_Measure_Unit.name') != 'MAW':
         raise DataError('Unexpected unit, MW required')
@@ -103,10 +111,15 @@ def parse_document(body, dataset, source, target, start, end, fetched_at):
         if (text(ts, '{*}out_Domain.mRID') != AREAS[source] or
                 text(ts, '{*}in_Domain.mRID') != AREAS[target]):
             raise DataError('Direction mismatch')
-        if dataset in ('hr_schedules', 'ntc_day_ahead', 'nominated_daily') and \
+        if dataset == 'hr_schedules' and \
                 text(ts, '{*}contract_MarketAgreement.type') != 'A01':
             raise DataError('Not a day-ahead/daily contract series')
-        if dataset == 'nominated_daily' and text(ts, '{*}businessType') != 'B08':
+        # NTC and nominated responses may omit the contract element; when it is
+        # present it must still be the day-ahead/daily contract.
+        if dataset in ('ntc_day_ahead', 'nominated_daily') and \
+                ts.findtext('{*}contract_MarketAgreement.type') not in (None, 'A01'):
+            raise DataError('Not a day-ahead/daily contract series')
+        if dataset == 'nominated_daily' and ts.findtext('{*}businessType') not in (None, 'B08'):
             raise DataError('Not total nominated capacity')
     curve = text(ts, '{*}curveType')
     if curve not in ('A01', 'A03'):
