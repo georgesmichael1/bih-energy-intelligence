@@ -221,7 +221,7 @@ def persist(path, rows, cutoff):
         # reconciliation before enabling multi-day backfills.
         merged[key(row)] = row
     out = io.StringIO(newline='')
-    writer = csv.DictWriter(out, fieldnames=COLUMNS)
+    writer = csv.DictWriter(out, fieldnames=COLUMNS, lineterminator='\n')
     writer.writeheader()
     writer.writerows(merged[k] for k in sorted(merged))
     atomic_text(path, out.getvalue())

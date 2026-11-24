@@ -4,10 +4,11 @@ import re
 import json
 import time
 import datetime
-from urllib.parse import urljoin, urlencode
-from zoneinfo import ZoneInfo
+
 from pipeline_status import DATASETS, record, write_status, utc_now
 from entsoe_adapter import update_entsoe
+from urllib.parse import urljoin, urlencode
+from zoneinfo import ZoneInfo
 
 import requests as std_requests
 from requests.adapters import HTTPAdapter
@@ -37,7 +38,7 @@ HEADERS = {
 }
 
 
-def create_resilient_session(retries=3, backoff_factor=1.5, use_cffi=True):
+def create_resilient_session(retries=3, backoff_factor=1.5, use_cffi=False):
     if use_cffi and HAS_CFFI:
         return cffi_requests.Session(impersonate="chrome124")
     session = std_requests.Session()
@@ -242,6 +243,21 @@ def update_nos_history() -> dict:
         last = with_actual.sort_values(["Date", "Hour"]).iloc[-1]
         latest_actual = f"{last['Date']} {int(last['Hour']):02d}:00"
 
+    state = "OK"
+    detail = "Historical requests completed; latest actual checked separately"
+    if latest_actual is None:
+        state, detail = "NO_DATA", "No actual production values"
+    else:
+        latest_row = with_actual.sort_values(["Date", "Hour"]).iloc[-1]
+        latest_end = (datetime.datetime.combine(latest_row["Date"], datetime.time(), NOS_TZ)
+                      + datetime.timedelta(hours=int(latest_row["Hour"])))
+        age = (datetime.datetime.now(NOS_TZ) - latest_end).total_seconds()
+        if not 0 <= age <= 6 * 3600:
+            state, detail = "STALE", "Latest actual outside six-hour freshness ceiling"
+    if failed:
+        state, detail = "PARTIAL", "One or more NOS day requests failed"
+    record("nos", state, detail=detail, latest_actual=latest_actual,
+           source=NOS_PAGE, dst_note="Legacy Date/Hour feed is not DST-safe; ENTSO-E uses UTC")
     return {
         "nos_source": "admin-ajax",
         "nos_fetched_at": stamp,
@@ -379,6 +395,8 @@ def update_flows_history() -> dict:
     resp = safe_get(session, f"{FLOWS_PAGE}?nocache={int(time.time())}", timeout_tuple=(10, 45))
     resp.raise_for_status()
     row = parse_flows_page(resp.text)
+    if not row["Act_Check"] or not row["Plan_Check"]:
+        raise NosError("Cross-border reconciliation failed; previous CSV retained")
     row["Fetched_At"] = datetime.datetime.now(NOS_TZ).isoformat(timespec="minutes")
 
     # One row per page timestamp. A newer fetch of the same timestamp replaces the old row.
@@ -429,7 +447,7 @@ def fetch_nosbih_balancing_prices():
             "Extreme_Max_Min_Price_BAM_MWh": 460.77,
             "SERC_Energy_Price_Cap_BAM_MWh": 989.46,
             "SERC_Capacity_Cap_BAM_MW_h": 25.00,
-            "Status": "VERIFIED",
+            "Status": "UNVERIFIED",
         },
         {
             "Reserve_Category": "FCR_Downward",
@@ -440,7 +458,7 @@ def fetch_nosbih_balancing_prices():
             "Extreme_Max_Min_Price_BAM_MWh": -135.64,
             "SERC_Energy_Price_Cap_BAM_MWh": -401.28,
             "SERC_Capacity_Cap_BAM_MW_h": 25.00,
-            "Status": "VERIFIED",
+            "Status": "UNVERIFIED",
         },
         {
             "Reserve_Category": "aFRR_Upward",
@@ -451,7 +469,7 @@ def fetch_nosbih_balancing_prices():
             "Extreme_Max_Min_Price_BAM_MWh": 200.00,
             "SERC_Energy_Price_Cap_BAM_MWh": 989.46,
             "SERC_Capacity_Cap_BAM_MW_h": 43.00,
-            "Status": "VERIFIED",
+            "Status": "UNVERIFIED",
         },
         {
             "Reserve_Category": "aFRR_Downward",
@@ -462,7 +480,7 @@ def fetch_nosbih_balancing_prices():
             "Extreme_Max_Min_Price_BAM_MWh": 160.00,
             "SERC_Energy_Price_Cap_BAM_MWh": -401.28,
             "SERC_Capacity_Cap_BAM_MW_h": 43.00,
-            "Status": "VERIFIED",
+            "Status": "UNVERIFIED",
         },
         {
             "Reserve_Category": "mFRR_Upward",
@@ -473,7 +491,7 @@ def fetch_nosbih_balancing_prices():
             "Extreme_Max_Min_Price_BAM_MWh": 850.00,
             "SERC_Energy_Price_Cap_BAM_MWh": 989.46,
             "SERC_Capacity_Cap_BAM_MW_h": 9.00,
-            "Status": "VERIFIED",
+            "Status": "UNVERIFIED",
         },
         {
             "Reserve_Category": "mFRR_Downward",
@@ -484,7 +502,7 @@ def fetch_nosbih_balancing_prices():
             "Extreme_Max_Min_Price_BAM_MWh": -400.00,
             "SERC_Energy_Price_Cap_BAM_MWh": -401.28,
             "SERC_Capacity_Cap_BAM_MW_h": 2.10,
-            "Status": "VERIFIED",
+            "Status": "UNVERIFIED",
         },
     ]
     for pdf_url in pdf_urls:
@@ -498,7 +516,8 @@ def fetch_nosbih_balancing_prices():
                         break
         except Exception:
             continue
-    return pd.DataFrame(verified_balancing_rows)
+    record("balancing", "STATIC_REFERENCE", detail="Typed-in August 2025 values, not extracted or freshly verified")
+    return pd.DataFrame(verified_balancing_rows).assign(Status="STATIC_REFERENCE")
 
 
 def discover_derk_pdfs(page_url="http://www.derk.ba/DocumentsPDFs/"):
@@ -531,8 +550,8 @@ def fetch_cbbh_fx_rates():
         "USD_BAM_Buy": 1.775196,
         "USD_BAM_Middle": 1.779645,
         "USD_BAM_Sell": 1.784094,
-        "Date": datetime.date.today().isoformat(),
-        "Status": "VERIFIED",
+        "Date": None,
+        "Status": "FALLBACK",
     }
     try:
         resp = safe_get(session, url, timeout_tuple=(10, 25))
@@ -545,8 +564,10 @@ def fetch_cbbh_fx_rates():
                 fx_data["USD_BAM_Buy"] = float(usd_match.group(1).replace(",", "."))
                 fx_data["USD_BAM_Middle"] = float(usd_match.group(2).replace(",", "."))
                 fx_data["USD_BAM_Sell"] = float(usd_match.group(3).replace(",", "."))
+                fx_data["Status"] = "PARSED_UNDATED"
     except Exception:
         pass
+    record("fx", fx_data["Status"], detail="Source publication date not validated; do not relabel as live", source=url)
     return fx_data
 
 
@@ -554,6 +575,8 @@ def fetch_worldometer_bih_population():
     url = "https://www.worldometers.info/world-population/bosnia-and-herzegovina-population/"
     session = create_resilient_session(retries=2)
     live_counter = 3106384.0
+    live_parsed = False
+    table_parsed = False
     wm_rows = []
     fallback_wm = (
         (2020, 3299349.0, -0.0128, -43838.0, -26840.0, 43.8, 1.52, 0.500, 1648721.0),
@@ -583,6 +606,7 @@ def fetch_worldometer_bih_population():
                 parsed_live = parse_numeric_cell(m_live.group(1))
                 if parsed_live and parsed_live > 2000000:
                     live_counter = parsed_live
+                    live_parsed = True
 
             seen_years = set()
             for table in soup.find_all("table"):
@@ -612,6 +636,7 @@ def fetch_worldometer_bih_population():
                                     "Urban_Population_Headcount": parse_numeric_cell(c_urb_pop),
                                 })
             if len(wm_rows) >= 6:
+                table_parsed = True
                 wm_rows.sort(key=lambda x: x["Year"])
     except Exception:
         pass
@@ -631,10 +656,14 @@ def fetch_worldometer_bih_population():
                 "Urban_Population_Headcount": urb_p,
             })
 
+    record("population", "OK" if live_parsed and table_parsed else "FALLBACK",
+           detail="Page values parsed" if live_parsed and table_parsed else "Live counter or table uses typed-in fallback",
+           source=url, source_as_of=None)
     return live_counter, pd.DataFrame(wm_rows)
 
 
 def fetch_bhas_headline_kpis():
+    record("bhas", "UNVERIFIED", detail="Mixed parsed and typed-in defaults; field dates not validated")
     url = "https://bhas.gov.ba/?lang=en"
     session = create_resilient_session(retries=2)
     try:
@@ -660,7 +689,7 @@ def fetch_bhas_headline_kpis():
             "Avg_Net_Wage_BAM": extract_pattern(r"([\d\.]+)\s*KM\s+Average net wages", text, True) or 1701.0,
             "Imports_Goods_I_IX_Thousand_BAM": extract_pattern(r"([\d\.]+)\s+Imports of goods", text, True) or 24153874.0,
             "Exports_Goods_I_IX_Thousand_BAM": extract_pattern(r"([\d\.]+)\s+Exports of goods", text, True) or 13397484.0,
-            "Status": "VERIFIED",
+            "Status": "UNVERIFIED",
         }
     except Exception:
         return {
@@ -670,7 +699,7 @@ def fetch_bhas_headline_kpis():
             "Avg_Net_Wage_BAM": 1701.0,
             "Imports_Goods_I_IX_Thousand_BAM": 24153874.0,
             "Exports_Goods_I_IX_Thousand_BAM": 13397484.0,
-            "Status": "VERIFIED",
+            "Status": "UNVERIFIED",
         }
 
 
@@ -682,6 +711,7 @@ def fetch_worldbank_bih_macro(start_year=2020, end_year=2025):
         "NE.IMP.GNFS.CD": "Imports_USD_Million",
     }
     records = {}
+    parsed_codes = set()
     session = create_resilient_session(retries=2, use_cffi=False)
     for code, col_name in indicators.items():
         api_url = f"https://api.worldbank.org/v2/country/BIH/indicator/{code}?date={start_year}:{end_year}&format=json"
@@ -697,6 +727,7 @@ def fetch_worldbank_bih_macro(start_year=2020, end_year=2025):
                             if val is not None and yr > 0:
                                 scale = 1.0 if code == "SP.POP.TOTL" else 1e6
                                 records.setdefault(yr, {})[col_name] = val / scale
+                                parsed_codes.add(code)
         except Exception:
             continue
 
@@ -709,6 +740,9 @@ def fetch_worldbank_bih_macro(start_year=2020, end_year=2025):
             2024: {"WB_Population_Headcount": 3164253.0, "GDP_USD_Million": 28400.0, "Exports_USD_Million": 11400.0, "Imports_USD_Million": 15900.0},
         }
 
+    record("worldbank", "OK" if len(parsed_codes) == len(indicators) else "PARTIAL_OR_FALLBACK",
+           detail="Historical values, not today's observation", indicators_parsed=sorted(parsed_codes),
+           requested_years=[start_year, end_year])
     df = pd.DataFrame.from_dict(records, orient="index").sort_index()
     df.index.name = "Year"
     return df.reset_index()
@@ -724,31 +758,32 @@ def sync_github_master_csv(
     status_path="status.json",
 ):
     if not os.path.exists(csv_path):
+        record("master", "FAILED", detail="Master CSV missing; sync skipped")
         print(f"   [NOTICE] {csv_path} not found in current folder; skipping CSV sync.")
         return
 
     df = pd.read_csv(csv_path)
-    today_disp = datetime.date.today().strftime("%d %b %Y")
 
-    # 1. Update BIH-0092 (Population: Worldometer Live + 2026 Mid-Yr + BHAS)
-    wm_2026_rows = wm_pop_df[wm_pop_df["Year"] == 2026]
-    wm_2026_val = int(wm_2026_rows["WM_Population_Headcount"].iloc[0]) if len(wm_2026_rows) > 0 else 3114242
-    m_pop = df["Record_ID"] == "BIH-0092"
-    df.loc[m_pop, "Primary_Value"] = (
-        f"{int(wm_live_pop):,} (Worldometer Live) / {wm_2026_val:,} (2026 Mid-Yr) / 3,531,159 (BHAS 2013 Census)"
-    )
-    df.loc[m_pop, "Secondary_Value"] = (
-        "YoY Change: -0.82% (-25,854) | Median Age: 46.1 Yrs | Urban: 53.3% | 2030 Forecast: 3,013,974"
-    )
-    df.loc[m_pop, "Tariff_Price_Rate_Value"] = f"{int(wm_live_pop):,} Live | 3.11M (2026) | 3.14M (WB)"
+    if (DATASETS.get("population", {}).get("state") == "OK"
+            and len(wm_pop_df[wm_pop_df["Year"] == 2026])):
+        # 1. Update BIH-0092 (Population: Worldometer Live + 2026 Mid-Yr + BHAS)
+        wm_2026_rows = wm_pop_df[wm_pop_df["Year"] == 2026]
+        wm_2026_val = int(wm_2026_rows["WM_Population_Headcount"].iloc[0])
+        m_pop = df["Record_ID"] == "BIH-0092"
+        df.loc[m_pop, "Primary_Value"] = (
+            f"{int(wm_live_pop):,} (Worldometer Live) / {wm_2026_val:,} (2026 Mid-Yr) / 3,531,159 (BHAS 2013 Census)"
+        )
+        df.loc[m_pop, "Tariff_Price_Rate_Value"] = f"{int(wm_live_pop):,} Live | {wm_2026_val:,} (2026 Mid-Yr)"
+        # Keep the older secondary narrative unchanged; it is not re-verified.
 
-    # 2. Update BIH-0128 (CBBH Live USD/BAM Spot & Buy/Sell)
-    m_fx = df["Record_ID"] == "BIH-0128"
-    df.loc[m_fx, "Primary_Value"] = f"1.6957 (Avg) / {fx_data['USD_BAM_Middle']:.4f} (CBBH Live Spot)"
-    df.loc[m_fx, "Secondary_Value"] = (
-        f"CBBH Buy: {fx_data['USD_BAM_Buy']:.4f} | Middle: {fx_data['USD_BAM_Middle']:.4f} | "
-        f"Sell: {fx_data['USD_BAM_Sell']:.4f} BAM/USD | Fixed Peg: 1.95583 BAM/EUR"
-    )
+    if fx_data.get("Status") == "OK":
+        # 2. Update BIH-0128 (CBBH Live USD/BAM Spot & Buy/Sell)
+        m_fx = df["Record_ID"] == "BIH-0128"
+        df.loc[m_fx, "Primary_Value"] = f"1.6957 (Avg) / {fx_data['USD_BAM_Middle']:.4f} (CBBH parsed, source date unverified)"
+        df.loc[m_fx, "Secondary_Value"] = (
+            f"CBBH Buy: {fx_data['USD_BAM_Buy']:.4f} | Middle: {fx_data['USD_BAM_Middle']:.4f} | "
+            f"Sell: {fx_data['USD_BAM_Sell']:.4f} BAM/USD | Fixed Peg: 1.95583 BAM/EUR"
+        )
 
     # 3. Update BIH-0487 from the DAM curve only when it was fetched. Otherwise keep the previous value.
     tou_mt_bam = round(115.0 + 18.5, 2)
@@ -768,12 +803,10 @@ def sync_github_master_csv(
         print("   [NOTICE] DAM curve unavailable; BIH-0487 left unchanged.")
 
     # 4. Dispatch rows (BIH-0488 onward) are stored in nos_hourly.csv, not here.
-    df = df[df["Record_ID"] <= "BIH-0487"].copy()
-    df.to_csv(csv_path, index=False, encoding="utf-8")
+    from pipeline_status import atomic_text
+    atomic_text(csv_path, df.to_csv(index=False))
 
-    status = {"last_verified_date": today_disp, "rows": len(df), **nos_status}
-    with open(status_path, "w", encoding="utf-8") as f:
-        json.dump(status, f, indent=2)
+    write_status(status_path, rows=len(df), legacy=nos_status)
 
     print(f"   [SUCCESS] Updated {csv_path} ({len(df)} rows) and {status_path}.")
 
@@ -1223,11 +1256,9 @@ def main():
     flows_status = call("flows", update_flows_history, {"flows_error": "Fetch failed"})
     if "flows" not in DATASETS:
         stamp = datetime.datetime.fromisoformat(flows_status["flows_timestamp"]).replace(tzinfo=NOS_TZ)
-        age = (datetime.datetime.now(NOS_TZ).astimezone(datetime.timezone.utc)
-               - stamp.astimezone(datetime.timezone.utc)).total_seconds()
+        age = (datetime.datetime.now(NOS_TZ).astimezone(datetime.timezone.utc) - stamp.astimezone(datetime.timezone.utc)).total_seconds()
         state = "OK" if flows_status.get("flows_checks_ok") and 0 <= age <= 7200 else "STALE_OR_INVALID"
-        record("flows", state, detail="Two-hour freshness ceiling; separate from historical ENTSO-E",
-               **flows_status)
+        record("flows", state, detail="Two-hour freshness ceiling; separate from historical ENTSO-E", **flows_status)
     nos_status.update(flows_status)
     call("entsoe", update_entsoe, None)
     try:

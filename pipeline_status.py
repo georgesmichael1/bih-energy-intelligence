@@ -15,7 +15,9 @@ def record(name, state, *, detail='', **metadata):
 def atomic_text(path, text):
     path = Path(path)
     tmp = path.with_name(path.name + '.tmp')
-    tmp.write_text(text, encoding='utf-8')
+    # newline='' stops Windows from adding a second line break.
+    with open(tmp, 'w', encoding='utf-8', newline='') as handle:
+        handle.write(text)
     os.replace(tmp, path)
 
 def write_status(path, *, rows=None, legacy=None):
