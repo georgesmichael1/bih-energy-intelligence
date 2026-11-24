@@ -44,3 +44,27 @@ class WriterIsolationTests(unittest.TestCase):
             self.assertEqual(path.read_text(),'sentinel')
             self.assertNotIn('entsoe_physical_flows',ps.DATASETS)
             self.assertEqual(set(ps.DATASETS),{'entsoe_load_forecast','entsoe_hr_schedules'})
+
+class RangeFetchTests(unittest.TestCase):
+    @patch.object(h.time,'sleep')
+    def test_six_ranges_then_incremental_and_gaps(self,_):
+        now=dt.datetime(2026,11,24,12,tzinfo=dt.timezone.utc)
+        requests=[]
+        def fetch(session,token,p):
+            requests.append(p)
+            a=next(k for k,v in e.AREAS.items() if v==p['out_Domain'])
+            b=next(k for k,v in e.AREAS.items() if v==p['in_Domain'])
+            start=dt.datetime.strptime(p['periodStart'],'%Y%m%d%H%M').replace(tzinfo=dt.timezone.utc)
+            end=now
+            return document('physical_flows',a,b,start=start,end=end,positions=[(1,10),(int((end-start).total_seconds()/3600),20)])
+        with tempfile.TemporaryDirectory() as tmp,patch.object(e,'fetch',side_effect=fetch):
+            result=h.update(tmp,now=now,token='dummy',session=object())
+            self.assertEqual(len(requests),6)
+            self.assertEqual(result['state'],'OK')
+            self.assertEqual(len(result['coverage']),186)
+            self.assertEqual(len({x['day'] for x in result['coverage'] if x['rows']}),31)
+            self.assertEqual(requests[0]['periodStart'],'202610242200')
+            requests.clear()
+            result=h.update(tmp,now=now,token='dummy',session=object())
+            self.assertEqual(len(requests),6)
+            self.assertEqual(requests[0]['periodStart'],'202611222300')
