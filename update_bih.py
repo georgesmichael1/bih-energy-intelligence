@@ -674,44 +674,61 @@ def fetch_worldometer_bih_population():
 
 
 def fetch_bhas_headline_kpis():
-    record("bhas", "UNVERIFIED", detail="Mixed parsed and typed-in defaults; field dates not validated")
+    # Each headline figure is read on its own, together with the reference period
+    # printed next to it on the BHAS page. A missing figure stays empty (None);
+    # no typed-in default is ever substituted.
     url = "https://bhas.gov.ba/?lang=en"
+    fields = [
+        "Population_Census_Headcount", "GDP_Real_Growth_Fraction", "CPI_Inflation_Fraction",
+        "Avg_Net_Wage_BAM", "Imports_Goods_I_IX_Thousand_BAM", "Exports_Goods_I_IX_Thousand_BAM",
+    ]
+    result = {name: None for name in fields}
+    periods = {}
     session = create_resilient_session(retries=2)
     try:
         resp = safe_get(session, url, timeout_tuple=(10, 30))
         resp.raise_for_status()
         text = BeautifulSoup(resp.text, "lxml").get_text(" ", strip=True)
+    except Exception as exc:
+        result["Status"] = "FAILED"
+        record("bhas", "FAILED", detail="BHAS page unreachable: " + type(exc).__name__, source=url)
+        return result
 
-        def extract_pattern(pattern, text_blob, scale_dots=True):
-            m = re.search(pattern, text_blob)
-            if not m:
-                return None
-            raw = m.group(1)
-            return (
-                float(raw.replace(".", "").replace(",", "."))
-                if scale_dots
-                else float(raw.replace(",", "."))
-            )
+    def grab(pattern, scale_dots):
+        m = re.search(pattern, text)
+        if not m:
+            return None, None
+        raw = m.group(1)
+        value = (float(raw.replace(".", "").replace(",", ".")) if scale_dots
+                 else float(raw.replace(",", ".")))
+        return value, m.group(2)
 
-        return {
-            "Population_Census_Headcount": extract_pattern(r"([\d\.]+)\s+Population\s+2013", text, True) or 3531159.0,
-            "GDP_Real_Growth_Fraction": (extract_pattern(r"([\d\.,]+)%\s+Gross domestic product", text, False) or 2.1) / 100.0,
-            "CPI_Inflation_Fraction": (extract_pattern(r"([\d\.,]+)%\s+Inflation \(CPI\)", text, False) or 6.0) / 100.0,
-            "Avg_Net_Wage_BAM": extract_pattern(r"([\d\.]+)\s*KM\s+Average net wages", text, True) or 1701.0,
-            "Imports_Goods_I_IX_Thousand_BAM": extract_pattern(r"([\d\.]+)\s+Imports of goods", text, True) or 24153874.0,
-            "Exports_Goods_I_IX_Thousand_BAM": extract_pattern(r"([\d\.]+)\s+Exports of goods", text, True) or 13397484.0,
-            "Status": "UNVERIFIED",
-        }
-    except Exception:
-        return {
-            "Population_Census_Headcount": 3531159.0,
-            "GDP_Real_Growth_Fraction": 0.021,
-            "CPI_Inflation_Fraction": 0.060,
-            "Avg_Net_Wage_BAM": 1701.0,
-            "Imports_Goods_I_IX_Thousand_BAM": 24153874.0,
-            "Exports_Goods_I_IX_Thousand_BAM": 13397484.0,
-            "Status": "UNVERIFIED",
-        }
+    specs = [
+        ("Population_Census_Headcount", r"([\d\.]+)\s+Population\s+(2013)", True, 1.0),
+        ("GDP_Real_Growth_Fraction", r"([\d\.,]+)%\s+Gross domestic product \(GDP\)\s+(\S+)", False, 100.0),
+        ("CPI_Inflation_Fraction", r"([\d\.,]+)%\s+Inflation \(CPI\)\s+(\S+)", False, 100.0),
+        ("Avg_Net_Wage_BAM", r"([\d\.]+)\s*KM\s+Average net wages\s+(\S+)", True, 1.0),
+        ("Imports_Goods_I_IX_Thousand_BAM", r"([\d\.]+)\s+Imports of goods \(in thous\. of KM\)\s+(I-IX,?\s*\d{4})", True, 1.0),
+        ("Exports_Goods_I_IX_Thousand_BAM", r"([\d\.]+)\s+Exports of goods \(in thous\. of KM\)\s+(I-IX,?\s*\d{4})", True, 1.0),
+    ]
+    missing = []
+    for name, pattern, scale_dots, divisor in specs:
+        value, period = grab(pattern, scale_dots)
+        if value is None:
+            missing.append(name)
+            continue
+        result[name] = value / divisor
+        periods[name] = period
+
+    result["Periods"] = periods
+    if missing:
+        result["Status"] = "PARTIAL"
+        record("bhas", "PARTIAL", detail="Not found on page: " + ", ".join(missing), source=url)
+    else:
+        result["Status"] = "OK"
+        record("bhas", "OK", detail="Headline KPIs read from BHAS page with reference periods",
+               source=url, periods=periods)
+    return result
 
 
 def fetch_worldbank_bih_macro(start_year=2020, end_year=2025):
