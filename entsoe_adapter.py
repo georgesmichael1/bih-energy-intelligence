@@ -1,4 +1,5 @@
-"""Bounded Bosnia ENTSO-E feeds. No actual-load, generation or price publishing.
+"""Bounded Bosnia ENTSO-E feeds (load forecast, physical flows, HR day-ahead schedules,
+day-ahead NTC and daily total nominated capacity). No actual-load or generation publishing here.
 
 All timestamps in the CSV primary key are UTC; local ISO timestamps include the
 UTC offset, including repeated fall-back hours. Positive directional quantities
@@ -80,7 +81,8 @@ def parse_document(body, dataset, source, target, start, end, fetched_at):
         raise DataError('API acknowledgement, code ' + ','.join(codes) +
                         ': ' + _safe_text(' '.join(reasons)))
     expected_type = {'load_forecast': 'A65', 'physical_flows': 'A11',
-                     'hr_schedules': 'A09'}[dataset]
+                     'hr_schedules': 'A09', 'ntc_day_ahead': 'A61',
+                     'nominated_daily': 'A26'}[dataset]
     if text(root, '{*}type') != expected_type:
         raise DataError('Unexpected document type')
     if dataset == 'load_forecast' and text(root, '{*}process.processType') != 'A01':
@@ -101,8 +103,11 @@ def parse_document(body, dataset, source, target, start, end, fetched_at):
         if (text(ts, '{*}out_Domain.mRID') != AREAS[source] or
                 text(ts, '{*}in_Domain.mRID') != AREAS[target]):
             raise DataError('Direction mismatch')
-        if dataset == 'hr_schedules' and text(ts, '{*}contract_MarketAgreement.type') != 'A01':
-            raise DataError('Not a day-ahead schedule')
+        if dataset in ('hr_schedules', 'ntc_day_ahead', 'nominated_daily') and \
+                text(ts, '{*}contract_MarketAgreement.type') != 'A01':
+            raise DataError('Not a day-ahead/daily contract series')
+        if dataset == 'nominated_daily' and text(ts, '{*}businessType') != 'B08':
+            raise DataError('Not total nominated capacity')
     curve = text(ts, '{*}curveType')
     if curve not in ('A01', 'A03'):
         raise DataError('Unsupported curve type')
@@ -245,7 +250,7 @@ def _saved_complete_days(path, directions, days):
     return done
 
 
-def update_entsoe(output_dir='.', day=None, session=None, token=None, include_physical=True):
+def update_entsoe(output_dir='.', day=None, session=None, token=None, include_physical=True, include_capacity=False):
     """Explicit day: fetch exactly that day. No day: refresh yesterday and also recover any
     incomplete older day in the 31-day local window (yesterday plus 29 earlier, today excluded).
     A day is saved only after every direction validates; failed days keep prior saved rows."""
@@ -257,9 +262,15 @@ def update_entsoe(output_dir='.', day=None, session=None, token=None, include_ph
         'physical_flows': [(a, b) for other in ('HR', 'RS', 'ME')
                            for a, b in [('BA', other), (other, 'BA')]],
         'hr_schedules': [('BA', 'HR'), ('HR', 'BA')],
+        'ntc_day_ahead': [(a, b) for other in ('HR', 'RS', 'ME')
+                          for a, b in [('BA', other), (other, 'BA')]],
+        'nominated_daily': [(a, b) for other in ('HR', 'RS', 'ME')
+                            for a, b in [('BA', other), (other, 'BA')]],
     }
     if not include_physical:
         groups.pop('physical_flows')
+    if not include_capacity:
+        groups.pop('ntc_day_ahead'); groups.pop('nominated_daily')
     token = token if token is not None else os.environ.get('ENTSOE_API_TOKEN', '').strip()
     owns_session = session is None
     session = session or make_session()
@@ -269,7 +280,8 @@ def update_entsoe(output_dir='.', day=None, session=None, token=None, include_ph
         rows = []
         for source, target in directions:
             parameters = {
-                'documentType': {'load_forecast': 'A65', 'physical_flows': 'A11', 'hr_schedules': 'A09'}[dataset],
+                'documentType': {'load_forecast': 'A65', 'physical_flows': 'A11', 'hr_schedules': 'A09',
+                                 'ntc_day_ahead': 'A61', 'nominated_daily': 'A26'}[dataset],
                 'periodStart': d_start.strftime('%Y%m%d%H%M'),
                 'periodEnd': d_end.strftime('%Y%m%d%H%M'),
             }
@@ -277,8 +289,10 @@ def update_entsoe(output_dir='.', day=None, session=None, token=None, include_ph
                 parameters.update({'processType': 'A01', 'outBiddingZone_Domain': AREAS['BA']})
             else:
                 parameters.update({'in_Domain': AREAS[target], 'out_Domain': AREAS[source]})
-                if dataset == 'hr_schedules':
+                if dataset in ('hr_schedules', 'ntc_day_ahead', 'nominated_daily'):
                     parameters['contract_MarketAgreement.type'] = 'A01'
+                if dataset == 'nominated_daily':
+                    parameters['businessType'] = 'B08'
             body = fetch(session, token, parameters)
             rows.extend(parse_document(body, dataset, source, target, d_start, d_end, utc_now()))
             time.sleep(1)
