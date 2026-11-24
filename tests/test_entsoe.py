@@ -18,7 +18,7 @@ def document(dataset='physical_flows', source='BA', target='HR', curve='A03',
     root = ET.Element('Document')
     def add(parent, tag, value):
         ET.SubElement(parent, tag).text = str(value)
-    add(root, 'type', {'physical_flows':'A11', 'load_forecast':'A65', 'hr_schedules':'A09'}[dataset])
+    add(root, 'type', {'physical_flows':'A11', 'load_forecast':'A65', 'hr_schedules':'A09', 'ntc_day_ahead':'A61', 'nominated_daily':'A26'}[dataset])
     add(root, 'process.processType', 'A01')
     add(root, 'mRID', 'synthetic-test')
     add(root, 'revisionNumber', 2)
@@ -27,6 +27,7 @@ def document(dataset='physical_flows', source='BA', target='HR', curve='A03',
     add(ts, 'in_Domain.mRID', e.AREAS[target])
     add(ts, 'outBiddingZone_Domain.mRID', e.AREAS['BA'])
     add(ts, 'contract_MarketAgreement.type', 'A01')
+    add(ts, 'businessType', 'B08')
     add(ts, 'quantity_Measure_Unit.name', unit)
     add(ts, 'curveType', curve)
     p = ET.SubElement(ts, 'Period')
@@ -41,6 +42,24 @@ def document(dataset='physical_flows', source='BA', target='HR', curve='A03',
 
 def parse(body, dataset='physical_flows', source='BA', target='HR', start=START, end=END):
     return e.parse_document(body, dataset, source, target, start, end, 'test-time')
+
+
+class CapacityParserTests(unittest.TestCase):
+    def test_ntc_and_nominated_parse_directional_hourly(self):
+        for dataset in ('ntc_day_ahead', 'nominated_daily'):
+            rows = parse(document(dataset, 'BA', 'HR', positions=[(1, 500)]), dataset)
+            self.assertEqual(len(rows), 24)
+            self.assertEqual({(r['From_Area'], r['To_Area'], r['Value_MW']) for r in rows}, {('BA', 'HR', 500)})
+    def test_wrong_direction_rejected(self):
+        with self.assertRaises(e.DataError):
+            parse(document('ntc_day_ahead', 'HR', 'BA'), 'ntc_day_ahead', 'BA', 'HR')
+    def test_nominated_requires_total_nominated_business_type(self):
+        body = document('nominated_daily', 'BA', 'HR').replace(b'B08', b'A25')
+        with self.assertRaises(e.DataError):
+            parse(body, 'nominated_daily')
+    def test_capacity_groups_run_and_skip(self):
+        import inspect
+        self.assertFalse(inspect.signature(e.update_entsoe).parameters['include_capacity'].default)
 
 
 class ParserTests(unittest.TestCase):
