@@ -512,11 +512,23 @@ class NosWindowIntegrityTests(unittest.TestCase):
             self.assertEqual(int((saved["Date"] == today).sum()), 24)
             self.assertEqual(ps.DATASETS["nos"]["state"], "PARTIAL")
 
-    def test_required_hours_follow_local_day_length(self):
-        self.assertEqual(u.required_hours(datetime.date(2026, 3, 29)), set(range(1, 24)))   # 23-hour day
-        self.assertEqual(u.required_hours(datetime.date(2026, 10, 25)), set(range(1, 25)))  # 25-hour day, feed has 24 labels
-        d = datetime.date(2026, 3, 29)
-        self.assertTrue(u.day_is_complete(_day_frame(d, hours=23), d))
-        self.assertFalse(u.day_is_complete(_day_frame(d, hours=22), d))
-        n = datetime.date(2026, 11, 23)
-        self.assertFalse(u.day_is_complete(_day_frame(n, hours=23), n))  # normal day needs all 24
+    def test_required_hours_and_dst_limitation(self):
+        # Live source check 2026-11-24: 25 Oct 2026 (25-hour day) returned 23 labels, 01:00..23:00 only.
+        fall = datetime.date(2026, 10, 25); spring = datetime.date(2026, 3, 29); n = datetime.date(2026, 11, 23)
+        self.assertEqual(u.required_hours(fall), set(range(1, 24)))
+        self.assertEqual(u.required_hours(spring), set(range(1, 24)))
+        self.assertEqual(u.required_hours(n), set(range(1, 25)))
+        self.assertTrue(u.dst_limited(fall) and u.dst_limited(spring) and not u.dst_limited(n))
+        self.assertTrue(u.day_is_complete(_day_frame(fall, hours=23), fall))   # as complete as this source can be
+        self.assertFalse(u.day_is_complete(_day_frame(fall, hours=22), fall))
+        self.assertFalse(u.day_is_complete(_day_frame(n, hours=23), n))        # normal day needs all 24
+
+    def test_dst_limited_day_is_reported_not_claimed_interval_complete(self):
+        today = datetime.date(2026, 11, 24)
+        with tempfile.TemporaryDirectory() as tmp:
+            def src(s, d):
+                return _day_frame(d, hours=23 if d == datetime.date(2026, 10, 25) else 24)
+            for _ in range(3):
+                res, saved = self.run_update(tmp, today, src)
+            self.assertEqual(ps.DATASETS["nos"]["dst_limited_days"], ["2026-10-25"])
+            self.assertEqual(ps.DATASETS["nos"]["incomplete_days"], [])
