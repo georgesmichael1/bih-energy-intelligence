@@ -442,25 +442,31 @@ class NosWindowIntegrityTests(unittest.TestCase):
         finally:
             os.chdir(old)
 
-    def test_window_is_31_days_rolls_and_prunes(self):
+    def fill(self, tmp, today, value=1.0, runs=3):
+        for _ in range(runs):
+            res, saved = self.run_update(tmp, today, lambda s, d: _day_frame(d, value=value))
+        return res, saved
+
+    def test_window_is_31_days_bounded_recovery_rolls_and_prunes(self):
         today = datetime.date(2026, 11, 24)
         with tempfile.TemporaryDirectory() as tmp:
             res, saved = self.run_update(tmp, today, lambda s, d: _day_frame(d))
-            self.assertEqual(res["nos_days_requested"], 31)
+            self.assertEqual(res["nos_days_requested"], 12)  # today, yesterday, newest 10 older days
+            self.assertEqual(ps.DATASETS["nos"]["state"], "PARTIAL")  # window not yet complete, visible
+            res, saved = self.fill(tmp, today, runs=2)
             self.assertEqual(saved["Date"].nunique(), 31)
             self.assertEqual(min(saved["Date"]), today - datetime.timedelta(days=30))
-            ps.DATASETS.clear()
             calls = []
             res, saved = self.run_update(tmp, today + datetime.timedelta(days=1), lambda s, d: calls.append(d) or _day_frame(d))
-            self.assertEqual(sorted(calls), [today, today + datetime.timedelta(days=1)])  # incremental: yesterday + today
+            self.assertEqual(sorted(calls), [today, today + datetime.timedelta(days=1)])  # incremental
             self.assertEqual(saved["Date"].nunique(), 31)
             self.assertEqual(min(saved["Date"]), today - datetime.timedelta(days=29))
             self.assertFalse(saved.duplicated(["Date", "Hour"]).any())
 
-    def test_incomplete_older_day_is_recovered_and_complete_replaces(self):
+    def test_incomplete_older_day_is_recovered(self):
         today = datetime.date(2026, 11, 24); gap = today - datetime.timedelta(days=9)
         with tempfile.TemporaryDirectory() as tmp:
-            self.run_update(tmp, today, lambda s, d: _day_frame(d, value=5.0))
+            self.fill(tmp, today, value=5.0)
             old = os.getcwd(); os.chdir(tmp)
             try:
                 df = u.load_nos_history(); df = df[~((df["Date"] == gap) & (df["Hour"] > 6))]; df.to_csv(u.NOS_HOURLY_CSV, index=False)
@@ -468,23 +474,49 @@ class NosWindowIntegrityTests(unittest.TestCase):
                 os.chdir(old)
             calls = []
             res, saved = self.run_update(tmp, today, lambda s, d: calls.append(d) or _day_frame(d, value=7.0))
-            self.assertIn(gap, calls); self.assertEqual(len(calls), 3)
+            self.assertEqual(sorted(calls), sorted([today, today - datetime.timedelta(days=1), gap]))
             self.assertEqual(int((saved["Date"] == gap).sum()), 24)
             self.assertTrue((saved[saved["Date"] == gap]["Actual_Production_MW"] == 7.0).all())
+            self.assertEqual(ps.DATASETS["nos"]["incomplete_days"], [])
 
-    def test_thinner_source_answer_keeps_saved_values_and_is_flagged(self):
+    def test_source_removed_value_is_removed_when_series_still_populated(self):
         today = datetime.date(2026, 11, 24)
         with tempfile.TemporaryDirectory() as tmp:
-            self.run_update(tmp, today, lambda s, d: _day_frame(d, value=5.0))
+            self.fill(tmp, today, value=5.0)
+            def removed(s, d):
+                f = _day_frame(d, value=5.0); f.loc[f["Hour"] == 3, "Actual_Production_MW"] = float("nan"); return f
+            res, saved = self.run_update(tmp, today, removed)
+            y = today - datetime.timedelta(days=1)
+            self.assertTrue(pd.isna(saved[(saved["Date"] == y) & (saved["Hour"] == 3)].iloc[0]["Actual_Production_MW"]))
+            self.assertEqual(ps.DATASETS["nos"]["retained_stale_notes"], [])  # authoritative correction, not stale retention
+
+    def test_blank_series_keeps_saved_values_and_is_flagged_stale(self):
+        today = datetime.date(2026, 11, 24)
+        with tempfile.TemporaryDirectory() as tmp:
+            self.fill(tmp, today, value=5.0)
             def thin(s, d):
                 f = _day_frame(d, value=9.0); f["Actual_Production_MW"] = float("nan"); f["Actual_Consumption_MW"] = float("nan"); return f
             res, saved = self.run_update(tmp, today, thin)
             self.assertEqual(ps.DATASETS["nos"]["state"], "PARTIAL")
             self.assertEqual(len(res["nos_days_failed"]), 0)
-            self.assertEqual(len(ps.DATASETS["nos"]["retained_over_thinner_source_days"]), 2)
-            self.assertTrue((saved[saved["Date"] == today]["Actual_Production_MW"] == 5.0).all())  # not blanked, never zero
+            notes = ps.DATASETS["nos"]["retained_stale_notes"]
+            self.assertEqual(len(notes), 4)  # two days, two blank series
+            self.assertTrue((saved[saved["Date"] == today]["Actual_Production_MW"] == 5.0).all())
+            self.assertTrue((saved[saved["Date"] == today]["Planned_Production_MW"] == 9.0).all())  # populated series updated
 
-    def test_dst_23_hour_day_counts_complete(self):
+    def test_missing_hours_never_delete_saved_rows(self):
+        today = datetime.date(2026, 11, 24)
+        with tempfile.TemporaryDirectory() as tmp:
+            self.fill(tmp, today, value=5.0)
+            res, saved = self.run_update(tmp, today, lambda s, d: _day_frame(d, hours=10, value=8.0))
+            self.assertEqual(int((saved["Date"] == today).sum()), 24)
+            self.assertEqual(ps.DATASETS["nos"]["state"], "PARTIAL")
+
+    def test_required_hours_follow_local_day_length(self):
+        self.assertEqual(u.required_hours(datetime.date(2026, 3, 29)), set(range(1, 24)))   # 23-hour day
+        self.assertEqual(u.required_hours(datetime.date(2026, 10, 25)), set(range(1, 25)))  # 25-hour day, feed has 24 labels
         d = datetime.date(2026, 3, 29)
         self.assertTrue(u.day_is_complete(_day_frame(d, hours=23), d))
         self.assertFalse(u.day_is_complete(_day_frame(d, hours=22), d))
+        n = datetime.date(2026, 11, 23)
+        self.assertFalse(u.day_is_complete(_day_frame(n, hours=23), n))  # normal day needs all 24
