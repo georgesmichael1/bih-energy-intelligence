@@ -213,7 +213,39 @@ def persist(path, rows, cutoff):
     atomic_text(path, out.getvalue())
 
 
+def _saved_complete_days(path, directions, days):
+    """Local days whose saved rows fully cover day_bounds for every direction. Gaps are never zero."""
+    path = Path(path)
+    if not path.exists():
+        return set()
+    with path.open(newline='', encoding='utf-8') as handle:
+        reader = csv.DictReader(handle)
+        if reader.fieldnames != COLUMNS:
+            return set()
+        saved = list(reader)
+    done = set()
+    for day in days:
+        start, end = day_bounds(day)
+        ok = True
+        for source, target in directions:
+            rows = sorted((r for r in saved if r['From_Area'] == source and r['To_Area'] == target
+                           and start <= instant(r['Interval_Start_UTC']) < end),
+                          key=lambda r: r['Interval_Start_UTC'])
+            if (not rows or instant(rows[0]['Interval_Start_UTC']) != start or
+                    instant(rows[-1]['Interval_End_UTC']) != end or
+                    any(a['Interval_End_UTC'] != b['Interval_Start_UTC'] for a, b in zip(rows, rows[1:]))):
+                ok = False
+                break
+        if ok:
+            done.add(day)
+    return done
+
+
 def update_entsoe(output_dir='.', day=None, session=None, token=None, include_physical=True):
+    """Explicit day: fetch exactly that day. No day: refresh yesterday and also recover any
+    incomplete older day in the 31-day local window (yesterday plus 29 earlier, today excluded).
+    A day is saved only after every direction validates; failed days keep prior saved rows."""
+    auto = day is None
     day = day or (dt.datetime.now(TZ).date() - dt.timedelta(days=1))
     start, end = day_bounds(day)
     groups = {
@@ -228,6 +260,25 @@ def update_entsoe(output_dir='.', day=None, session=None, token=None, include_ph
     owns_session = session is None
     session = session or make_session()
     stopped = False
+    def fetch_day(dataset, directions, target_day):
+        d_start, d_end = day_bounds(target_day)
+        rows = []
+        for source, target in directions:
+            parameters = {
+                'documentType': {'load_forecast': 'A65', 'physical_flows': 'A11', 'hr_schedules': 'A09'}[dataset],
+                'periodStart': d_start.strftime('%Y%m%d%H%M'),
+                'periodEnd': d_end.strftime('%Y%m%d%H%M'),
+            }
+            if dataset == 'load_forecast':
+                parameters.update({'processType': 'A01', 'outBiddingZone_Domain': AREAS['BA']})
+            else:
+                parameters.update({'in_Domain': AREAS[target], 'out_Domain': AREAS[source]})
+                if dataset == 'hr_schedules':
+                    parameters['contract_MarketAgreement.type'] = 'A01'
+            body = fetch(session, token, parameters)
+            rows.extend(parse_document(body, dataset, source, target, d_start, d_end, utc_now()))
+            time.sleep(1)
+        return rows
     try:
         for dataset, directions in groups.items():
             name = 'entsoe_' + dataset
@@ -236,36 +287,51 @@ def update_entsoe(output_dir='.', day=None, session=None, token=None, include_ph
             if not token or stopped:
                 record(name, 'FAILED', detail='Token missing' if not token else 'Stopped after authentication/rate limit', **meta)
                 continue
+            path = Path(output_dir) / (name + '.csv')
+            backfill = []
+            if auto:
+                window = [day - dt.timedelta(days=n) for n in range(1, 30)]
+                have = _saved_complete_days(path, directions, window)
+                backfill = [d for d in window if d not in have]  # newest first
+            cutoff = day_bounds(day - dt.timedelta(days=29))[0] if auto else start - dt.timedelta(days=29)
             try:
-                rows = []
-                for source, target in directions:
-                    parameters = {
-                        'documentType': {'load_forecast': 'A65', 'physical_flows': 'A11', 'hr_schedules': 'A09'}[dataset],
-                        'periodStart': start.strftime('%Y%m%d%H%M'),
-                        'periodEnd': end.strftime('%Y%m%d%H%M'),
-                    }
-                    if dataset == 'load_forecast':
-                        parameters.update({'processType': 'A01', 'outBiddingZone_Domain': AREAS['BA']})
-                    else:
-                        parameters.update({'in_Domain': AREAS[target], 'out_Domain': AREAS[source]})
-                        if dataset == 'hr_schedules':
-                            parameters['contract_MarketAgreement.type'] = 'A01'
-                    body = fetch(session, token, parameters)
-                    rows.extend(parse_document(body, dataset, source, target, start, end, utc_now()))
-                    time.sleep(1)
-                persist(Path(output_dir) / (name + '.csv'), rows, start - dt.timedelta(days=29))
-                record(name, 'OK', detail='Complete requested historical day; not current-day data',
-                       row_count=len(rows), directions=len(directions), unit='MW', **meta)
+                rows = fetch_day(dataset, directions, day)
+                persist(path, rows, cutoff)
             except StopAPI as exc:
                 stopped = True
                 record(name, 'FAILED', detail=str(exc), **meta)
+                continue
             except (APIError, DataError) as exc:
                 # These messages are fixed strings from this code, or ENTSO-E reason
                 # codes. They never contain the token or raw response text.
                 record(name, 'FAILED', detail='Request/validation failed: ' + str(exc).replace(token, '[redacted]'), **meta)
+                continue
             except (ValueError, OSError, KeyError, TypeError) as exc:
                 # Generic errors may echo input text, so only the type name is recorded.
                 record(name, 'FAILED', detail='Fetch/validation/write failed: ' + type(exc).__name__, **meta)
+                continue
+            recovered, unavailable = [], []
+            for older in backfill:
+                if stopped:
+                    unavailable.append(older.isoformat())
+                    continue
+                try:
+                    persist(path, fetch_day(dataset, directions, older), cutoff)
+                    recovered.append(older.isoformat())
+                except StopAPI:
+                    stopped = True
+                    unavailable.append(older.isoformat())
+                except (APIError, DataError, ValueError, OSError, KeyError, TypeError):
+                    unavailable.append(older.isoformat())
+            if auto:
+                meta.update(recovered_days=recovered, unavailable_days=unavailable)
+            if unavailable:
+                record(name, 'PARTIAL', detail='Yesterday saved; ' + str(len(unavailable)) +
+                       ' earlier day(s) still unavailable or incomplete at the source. Saved rows kept, gaps are not zero',
+                       row_count=len(rows), directions=len(directions), unit='MW', **meta)
+            else:
+                record(name, 'OK', detail='Complete requested historical day; not current-day data',
+                       row_count=len(rows), directions=len(directions), unit='MW', **meta)
     finally:
         if owns_session:
             session.close()
