@@ -37,27 +37,41 @@ jobs:
       - name: Run offline tests
         run: python -m unittest discover -s tests -v
 
-      # Fails the run if the token is missing, any direction fails, or nothing was recorded.
-      - name: Fetch previous-day ENTSO-E data
+      # Scheduled runs fetch the previous day. Manual runs refetch today plus the previous 30 days.
+      # Every day is requested fresh from ENTSO-E; valid days are saved even if another day fails.
+      - name: Fetch ENTSO-E load forecast and HR schedules
+        id: fetch
+        continue-on-error: true
+        env:
+          FULL_WINDOW: ${{ github.event_name == 'workflow_dispatch' && '1' || '0' }}
         run: |
           python3 - <<'PY'
-          import sys
-          from entsoe_adapter import update_entsoe
+          import os, sys, datetime as dt
+          import entsoe_adapter as e
           from pipeline_status import DATASETS
-          update_entsoe(include_physical=False)
-          names = [k for k in DATASETS if k.startswith("entsoe_")]
-          if not names:
-              print("::error::No ENTSO-E dataset state was recorded")
-              sys.exit(1)
-          bad = {k: DATASETS[k] for k in names if DATASETS[k]["state"] != "OK"}
-          for k, v in bad.items():
-              print(f"::error::{k}: {v['state']} {v['detail']}")
+          today = dt.datetime.now(e.TZ).date()
+          if os.environ.get("FULL_WINDOW") == "1":
+              days = [today - dt.timedelta(days=n) for n in range(30, -1, -1)]
+          else:
+              days = [today - dt.timedelta(days=1)]
+          bad = []
+          for day in days:
+              DATASETS.clear()
+              e.update_entsoe(day=day, include_physical=False)
+              names = [k for k in DATASETS if k.startswith("entsoe_")]
+              if not names:
+                  bad.append(f"{day}: no dataset state recorded")
+              for k in names:
+                  if DATASETS[k]["state"] != "OK":
+                      bad.append(f"{day} {k}: {DATASETS[k]['state']} {DATASETS[k]['detail']}")
+          print(f"days requested: {len(days)} ({days[0]} to {days[-1]}), failures: {len(bad)}")
+          for b in bad:
+              print(f"::error::{b}")
           sys.exit(1 if bad else 0)
           PY
 
       # Only load and HR schedule CSVs (physical flows have their own rolling writer) are committed here. status.json is owned by the 30-minute job.
       - name: Commit and push ENTSO-E CSVs
-        if: success()
         run: |
           git config user.name "BiH Energy Auto-Updater"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -67,7 +81,13 @@ jobs:
           if git diff --staged --quiet; then
             echo "No ENTSO-E changes this run."
           else
-            git commit -m "chore(entsoe): daily previous-day update $(date -u +'%Y-%m-%d %H:%M')"
+            git commit -m "chore(entsoe): ENTSO-E update $(date -u +'%Y-%m-%d %H:%M')"
             git pull --rebase --autostash origin main
             git push origin HEAD:main
           fi
+
+      - name: Quality gate
+        if: steps.fetch.outcome != 'success'
+        run: |
+          echo "::error::ENTSO-E fetch incomplete. Valid days were saved; see the fetch step log."
+          exit 1
