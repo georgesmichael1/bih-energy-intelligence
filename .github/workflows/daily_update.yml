@@ -43,6 +43,8 @@ jobs:
           python3 current_gdp.py
         env:
           ENTSOE_API_TOKEN: ${{ secrets.ENTSOE_API_TOKEN }}
+          # Manual runs refetch the whole 31-day window; the 30-minute schedule stays incremental.
+          FULL_WINDOW: ${{ github.event_name == 'workflow_dispatch' && '1' || '0' }}
 
       # Good data is saved first, even if a later check fails.
       - name: Commit and push updated files
