@@ -47,7 +47,7 @@ class WriterIsolationTests(unittest.TestCase):
 
 class RangeFetchTests(unittest.TestCase):
     @patch.object(h.time,'sleep')
-    def test_six_ranges_every_run_refetches_full_window(self,_):
+    def test_six_ranges_then_incremental_and_gaps(self,_):
         now=dt.datetime(2026,11,24,12,tzinfo=dt.timezone.utc)
         requests=[]
         def fetch(session,token,p):
@@ -67,4 +67,4 @@ class RangeFetchTests(unittest.TestCase):
             requests.clear()
             result=h.update(tmp,now=now,token='dummy',session=object())
             self.assertEqual(len(requests),6)
-            self.assertEqual(requests[0]['periodStart'],'202610242200')  # full window again, no reuse
+            self.assertEqual(requests[0]['periodStart'],'202611222300')
