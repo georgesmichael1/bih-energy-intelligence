@@ -1,6 +1,6 @@
 """Regional day-ahead references, never a Bosnia tariff or border trade quote.
 
-Direct token-based A44 auction consumer for RS/HU. Owner approved public output;
+Direct token-based A44 auction consumer for RS/HU/HR/ME. Owner approved public output;
 source attribution and primary-owner rights remain applicable. Token is server-side.
 """
 import csv
@@ -19,11 +19,28 @@ from pipeline_status import atomic_text, record, utc_now
 MARKETS = {
     "HU": ("Hungary", "Europe/Budapest"),
     "RS": ("Serbia", "Europe/Belgrade"),
+    "HR": ("Croatia", "Europe/Zagreb"),
+    "ME": ("Montenegro", "Europe/Podgorica"),
 }
+# ENTSO-E TP bidding-zone EIC codes, as selected on the TP price pages (observed 24 Nov 2026).
+AREAS = {"RS": "10YCS-SERBIATSOV", "HU": "10YHU-MAVIR----U",
+         "HR": "10YHR-HEP------M", "ME": "10YCS-CG-TSO---S"}
+OWNERS = {"RS": "SEEPEX", "HU": "HUPX",
+          "HR": "not named on the TP page (bidding zone HR)",
+          "ME": "not named on the TP page (bidding zone ME)"}
 HU_SOURCE = "https://api.energy-charts.info/price?bzn=HU"
 HUPX_SOURCE = "https://labs.hupx.hu/data/v1/dam_aggregated_trading_data_15min"
 HUPX_ATTRIBUTION = "HUPX Hungarian Power Exchange - Labs DAM aggregated trading data, 15-minute MTU"
 HUPX_LICENSE_URL = "https://labs.hupx.hu/about_us/terms_of_use"
+PRIMARY_MARKETS = ("HU", "RS")
+EXTRA_MARKETS = ("HR", "ME")
+
+
+def extra_csv_path(csv_path):
+    path = Path(csv_path)
+    return str(path.with_name(path.stem + "_hr_me" + path.suffix))
+
+
 ATTRIBUTION = "Bundesnetzagentur | SMARD.de, via Fraunhofer ISE Energy-Charts"
 LICENSE_URL = "https://creativecommons.org/licenses/by/4.0/"
 COLUMNS = ["Market", "Country", "Product", "Delivery_Date", "Interval_Start_UTC",
@@ -97,7 +114,7 @@ def _fetch_market_day(session, token, market, day, stamp, areas, source):
     return [{"Market": market, "Country": country, "Product": "DAY_AHEAD",
              "Delivery_Date": day.isoformat(), "Interval_Start_UTC": row["start"].isoformat(),
              "Interval_End_UTC": row["end"].isoformat(), "Price_EUR_MWh": row["price"],
-             "Source": source, "Attribution": "ENTSO-E Transparency Platform; primary owner: " + ("SEEPEX" if market == "RS" else "HUPX"),
+             "Source": source, "Attribution": "ENTSO-E Transparency Platform; primary owner: " + OWNERS[market],
              "License": "ENTSO-E Terms of Use; primary-owner rights apply, not a blanket CC-BY grant",
              "Fetched_At": stamp} for row in parsed]
 
@@ -200,11 +217,13 @@ def update_regional_prices(csv_path="regional_day_ahead_prices.csv", session=Non
     session = session or requests.Session()
     results, good = [], []
     source = "https://web-api.tp.entsoe.eu/api"
-    areas = {"RS": "10YCS-SERBIATSOV", "HU": "10YHU-MAVIR----U"}
+    areas = AREAS
     prior = []
-    if Path(csv_path).exists():
-        with open(csv_path, newline="", encoding="utf-8") as handle:
-            prior = list(csv.DictReader(handle))
+    extra_path = extra_csv_path(csv_path)
+    for source_path in (csv_path, extra_path):
+        if Path(source_path).exists():
+            with open(source_path, newline="", encoding="utf-8") as handle:
+                prior.extend(csv.DictReader(handle))
     try:
         for market, (country, timezone) in MARKETS.items():
             day = now.astimezone(ZoneInfo(timezone)).date()
@@ -248,14 +267,19 @@ def update_regional_prices(csv_path="regional_day_ahead_prices.csv", session=Non
         cutoff = (now.date()-dt.timedelta(days=30)).isoformat()
         retained = [r for r in prior if r.get("Market") in MARKETS and r.get("Delivery_Date", "") >= cutoff
                     and (r.get("Market"),r.get("Delivery_Date")) not in replaced]
-        output = io.StringIO(newline="")
-        writer = csv.DictWriter(output, fieldnames=COLUMNS)
-        writer.writeheader()
-        writer.writerows(sorted(retained + results, key=lambda r:(r["Market"],r["Interval_Start_UTC"])))
-        atomic_text(csv_path, output.getvalue())
+        # HU/RS stay in the original file so existing workbooks keep working; HR/ME go to a separate file.
+        for path, group in ((csv_path, PRIMARY_MARKETS), (extra_path, EXTRA_MARKETS)):
+            if not any(r["Market"] in group for r in results):
+                continue
+            output = io.StringIO(newline="")
+            writer = csv.DictWriter(output, fieldnames=COLUMNS)
+            writer.writeheader()
+            writer.writerows(sorted([r for r in retained + results if r["Market"] in group],
+                                    key=lambda r:(r["Market"],r["Interval_Start_UTC"])))
+            atomic_text(path, output.getvalue())
     record("dam", "OK" if len(good)==len(MARKETS) else "PARTIAL", markets=list(MARKETS),
            product="DAY_AHEAD", csv=str(csv_path), not_bosnia_tariff=True,
-           detail="Today's RS/HU auction curves validated; 31-day window complete" if len(good)==len(MARKETS) else "Required current-day market or window days missing")
+           detail="Today's RS/HU/HR/ME auction curves validated; 31-day window complete" if len(good)==len(MARKETS) else "Required current-day market or window days missing")
     return results
 
 def mark_legacy_master(path="bih_data.csv"):
@@ -303,7 +327,6 @@ def main():
     old = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
     DATASETS.clear()
     DATASETS.update(old.get("dataset_details", {}))
-    DATASETS.pop("price_me", None)
     update_regional_prices()
     mark_legacy_master()
     reserved = {"schema_version", "run_finished_at", "last_verified_date",
