@@ -131,28 +131,34 @@ class ParserTests(unittest.TestCase):
 class RunTests(unittest.TestCase):
     def setUp(self): ps.DATASETS.clear()
 
-    def test_request_header_not_query(self):
-        session=Mock(); session.post.return_value=Mock(status_code=200,content=b'xml')
-        self.assertEqual(e.fetch(session,'dummy-test-token',{'DocumentType':'A11'}),b'xml')
-        args,kwargs=session.post.call_args
+    def test_token_only_in_query_param(self):
+        session=Mock(); session.get.return_value=Mock(status_code=200,content=b'xml')
+        self.assertEqual(e.fetch(session,'dummy-test-token',{'documentType':'A11'}),b'xml')
+        args,kwargs=session.get.call_args
         self.assertEqual(args[0],e.ENDPOINT)
-        self.assertNotIn('dummy-test-token',args[0]); self.assertNotIn(b'dummy-test-token',kwargs['data'])
+        self.assertEqual(kwargs['params']['securityToken'],'dummy-test-token')
         self.assertFalse(kwargs['allow_redirects'])
+
+    def test_network_error_hides_url_and_token(self):
+        session=Mock(); session.get.side_effect=e.requests.ConnectionError('https://x?securityToken=dummy-test-token')
+        with self.assertRaises(e.APIError) as ctx:
+            e.fetch(session,'dummy-test-token',{'documentType':'A11'})
+        self.assertNotIn('dummy-test-token',str(ctx.exception))
 
     def test_auth_and_rate_limit_stop(self):
         for code in (401,403,429):
             with self.subTest(code=code), tempfile.TemporaryDirectory() as tmp:
                 ps.DATASETS.clear(); session=Mock()
-                session.post.return_value=Mock(status_code=code)
+                session.get.return_value=Mock(status_code=code)
                 e.update_entsoe(tmp,DAY,session=session,token='dummy')
-                self.assertEqual(session.post.call_count,1)
+                self.assertEqual(session.get.call_count,1)
                 self.assertEqual(len(ps.DATASETS),3)
                 self.assertFalse(list(Path(tmp).glob('*.csv')))
 
     def test_missing_token(self):
         session=Mock()
         e.update_entsoe(day=DAY,session=session,token='')
-        session.post.assert_not_called()
+        session.get.assert_not_called()
         self.assertEqual(len(ps.DATASETS),3)
 
     @patch('entsoe_adapter.time.sleep')
@@ -161,17 +167,17 @@ class RunTests(unittest.TestCase):
         for a,b in [('BA','HR'),('HR','BA'),('BA','RS'),('RS','BA'),('BA','ME'),('ME','BA')]:
             bodies.append(document('physical_flows',a,b))
         bodies.extend([document('hr_schedules','BA','HR'),document('hr_schedules','HR','BA')])
-        session=Mock(); session.post.side_effect=[Mock(status_code=200,content=b) for b in bodies]
+        session=Mock(); session.get.side_effect=[Mock(status_code=200,content=b) for b in bodies]
         with tempfile.TemporaryDirectory() as tmp:
             e.update_entsoe(tmp,DAY,session=session,token='dummy')
-            self.assertEqual(session.post.call_count,9)
+            self.assertEqual(session.get.call_count,9)
             self.assertEqual([ps.DATASETS['entsoe_'+k]['row_count'] for k in ('load_forecast','physical_flows','hr_schedules')],[24,144,48])
             self.assertEqual(len(list(Path(tmp).glob('*.csv'))),3)
 
     @patch('entsoe_adapter.time.sleep')
     def test_failed_direction_keeps_entire_dataset(self,_):
         session=Mock()
-        session.post.side_effect=[Mock(status_code=200,content=document('load_forecast','BA','BA')),
+        session.get.side_effect=[Mock(status_code=200,content=document('load_forecast','BA','BA')),
                                   Mock(status_code=200,content=document()),
                                   Mock(status_code=200,content=b'<bad>'),
                                   Mock(status_code=200,content=b'<bad>')]
@@ -182,7 +188,7 @@ class RunTests(unittest.TestCase):
             self.assertEqual(ps.DATASETS['entsoe_physical_flows']['state'],'FAILED')
 
     def test_no_data_no_secret_in_status(self):
-        session=Mock(); session.post.side_effect=e.requests.ConnectionError('dummy-secret')
+        session=Mock(); session.get.side_effect=e.requests.ConnectionError('dummy-secret')
         with tempfile.TemporaryDirectory() as tmp:
             e.update_entsoe(tmp,DAY,session=session,token='dummy-secret')
             self.assertNotIn('dummy-secret',json.dumps(ps.DATASETS))
