@@ -86,14 +86,18 @@ def update(output_dir='.', now=None, session=None, token=None):
             reader=csv.DictReader(f)
             if reader.fieldnames!=e.COLUMNS:raise e.DataError('Existing CSV schema mismatch')
             old=list(reader)
-    prior_rows={(r['From_Area'],r['To_Area'],r['Interval_Start_UTC']):r for r in old if cutoff<=e.instant(r['Interval_Start_UTC'])<e.day_bounds(today)[1]}
-    merged=dict(prior_rows)
+    merged={(r['From_Area'],r['To_Area'],r['Interval_Start_UTC']):r for r in old if cutoff<=e.instant(r['Interval_Start_UTC'])<e.day_bounds(today)[1]}
     owns=session is None;session=session or e.make_session(); failures=[];stopped=False
     try:
         for source,target in DIRECTIONS:
             if not token or stopped:
                 failures.append(dict(direction=source+'>'+target,reason='Token missing' if not token else 'Stopped after authentication/rate limit'));continue
-            fetch_first=oldest  # every run refetches all 31 delivery days from the source
+            fetch_first=today-dt.timedelta(days=1)
+            for offset in range(29):
+                day=oldest+dt.timedelta(days=offset)
+                saved=sorted([r for r in merged.values() if r['From_Area']==source and r['To_Area']==target and r['Interval_Start_Local'][:10]==str(day)],key=lambda r:r['Interval_Start_UTC'])
+                if not complete(saved,day):
+                    fetch_first=day;break
             begin=time.monotonic()
             try:
                 body=e.fetch(session,token,dict(documentType='A11',in_Domain=e.AREAS[target],out_Domain=e.AREAS[source],periodStart=e.day_bounds(fetch_first)[0].strftime('%Y%m%d%H%M'),periodEnd=e.day_bounds(today)[1].strftime('%Y%m%d%H%M')))
@@ -101,14 +105,12 @@ def update(output_dir='.', now=None, session=None, token=None):
                 for r in incoming:
                     k=(source,target,r['Interval_Start_UTC']);prior=merged.get(k)
                     if prior and prior['Source_Document']==r['Source_Document'] and int(prior['Revision'])>int(r['Revision']):raise e.DataError('Revision regression')
-                # Fresh source answer replaces this direction's whole window; no stored-history reuse.
-                for k in [k for k in merged if k[0]==source and k[1]==target]:del merged[k]
                 for r in incoming:merged[source,target,r['Interval_Start_UTC']]=r
                 print(json.dumps(dict(direction=source+'>'+target,rows=len(incoming),elapsed_seconds=round(time.monotonic()-begin,2))),flush=True)
             except e.StopAPI:
                 stopped=True;failures.append(dict(direction=source+'>'+target,reason='Authentication or rate limit'))
             except (e.APIError,e.DataError,ValueError,KeyError,TypeError,ET.ParseError):
-                failures.append(dict(direction=source+'>'+target,reason='Source unavailable or validation failed; previous saved intervals kept only for this failed direction'))
+                failures.append(dict(direction=source+'>'+target,reason='Source unavailable or validation failed; saved intervals retained'))
                 print(json.dumps(dict(direction=source+'>'+target,result='unavailable_or_invalid',elapsed_seconds=round(time.monotonic()-begin,2))),flush=True)
             time.sleep(1)
     finally:
