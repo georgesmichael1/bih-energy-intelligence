@@ -430,93 +430,66 @@ def fetch_seepex_hupx_dam_curve():
     return None
 
 
+BAL_LABELS = {
+    "FCP Up": ("FCR_Upward", 1), "FCP Down": ("FCR_Downward", -1),
+    "aFRR Up": ("aFRR_Upward", 1), "aFRR Down": ("aFRR_Downward", -1),
+    "mFRR Up": ("mFRR_Upward", 1), "mFRR Down": ("mFRR_Downward", -1),
+}
+BAL_REPORT_URL = "https://www.nosbih.ba/files/balansno/izvjestaji/mjeseci/202508-en-balansno-trziste-izvjestaj.pdf"
+
+
+def _bal_num(token):
+    # NOS report format: "34.502" = 34502 (dot = thousands), "155,31" = 155.31 (comma = decimal).
+    return float(token.replace(".", "").replace(",", "."))
+
+
+def parse_balancing_text(text):
+    # Returns a 6-row DataFrame read from the report text, or None if any row is missing.
+    # SERC caps are not in the report, so those columns are left empty, never filled in.
+    found = {}
+    for line in text.splitlines():
+        m = re.match(r"^(FCP Up|FCP Down|aFRR Up|aFRR Down|mFRR Up|mFRR Down)\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)$",
+                     line.strip())
+        if m:
+            found[m.group(1)] = [_bal_num(x) for x in m.groups()[1:]]
+    if len(found) != len(BAL_LABELS):
+        return None
+    rows = []
+    for label, (category, direction) in BAL_LABELS.items():
+        energy, cost, avg, extreme = found[label]
+        rows.append({
+            "Reserve_Category": category, "Direction": direction,
+            "Activated_Energy_MWh": energy, "Total_Energy_Cost_BAM": cost,
+            "Reported_Avg_Price_BAM_MWh": avg, "Extreme_Max_Min_Price_BAM_MWh": extreme,
+            "SERC_Energy_Price_Cap_BAM_MWh": None, "SERC_Capacity_Cap_BAM_MW_h": None,
+            "Status": "STATIC_REFERENCE",
+        })
+    return pd.DataFrame(rows)
+
+
 def fetch_nosbih_balancing_prices():
+    # Reads the NOS report for August 2025 at runtime. It is a historical reference,
+    # so success keeps the STATIC_REFERENCE label (a warning, not a failure).
+    # If the report can't be read, nothing is substituted: the table is empty and FAILED.
     session = create_resilient_session(retries=2)
-    pdf_urls = (
-        "https://www.nosbih.ba/files/balansno/izvjestaji/mjeseci/202508-en-balansno-trziste-izvjestaj.pdf",
-        "https://www.nosbih.ba/files/balansno/izvjestaji/mjeseci/202508-lat-balansno-trziste-izvjestaj.pdf",
-    )
-    verified_balancing_rows = [
-        {
-            "Reserve_Category": "FCR_Upward",
-            "Direction": 1,
-            "Activated_Energy_MWh": 222.0,
-            "Total_Energy_Cost_BAM": 34502.0,
-            "Reported_Avg_Price_BAM_MWh": 155.31,
-            "Extreme_Max_Min_Price_BAM_MWh": 460.77,
-            "SERC_Energy_Price_Cap_BAM_MWh": 989.46,
-            "SERC_Capacity_Cap_BAM_MW_h": 25.00,
-            "Status": "UNVERIFIED",
-        },
-        {
-            "Reserve_Category": "FCR_Downward",
-            "Direction": -1,
-            "Activated_Energy_MWh": 242.0,
-            "Total_Energy_Cost_BAM": 35047.0,
-            "Reported_Avg_Price_BAM_MWh": 144.81,
-            "Extreme_Max_Min_Price_BAM_MWh": -135.64,
-            "SERC_Energy_Price_Cap_BAM_MWh": -401.28,
-            "SERC_Capacity_Cap_BAM_MW_h": 25.00,
-            "Status": "UNVERIFIED",
-        },
-        {
-            "Reserve_Category": "aFRR_Upward",
-            "Direction": 1,
-            "Activated_Energy_MWh": 3020.0,
-            "Total_Energy_Cost_BAM": 462846.0,
-            "Reported_Avg_Price_BAM_MWh": 153.26,
-            "Extreme_Max_Min_Price_BAM_MWh": 200.00,
-            "SERC_Energy_Price_Cap_BAM_MWh": 989.46,
-            "SERC_Capacity_Cap_BAM_MW_h": 43.00,
-            "Status": "UNVERIFIED",
-        },
-        {
-            "Reserve_Category": "aFRR_Downward",
-            "Direction": -1,
-            "Activated_Energy_MWh": 2368.0,
-            "Total_Energy_Cost_BAM": 241698.0,
-            "Reported_Avg_Price_BAM_MWh": 102.08,
-            "Extreme_Max_Min_Price_BAM_MWh": 160.00,
-            "SERC_Energy_Price_Cap_BAM_MWh": -401.28,
-            "SERC_Capacity_Cap_BAM_MW_h": 43.00,
-            "Status": "UNVERIFIED",
-        },
-        {
-            "Reserve_Category": "mFRR_Upward",
-            "Direction": 1,
-            "Activated_Energy_MWh": 956.0,
-            "Total_Energy_Cost_BAM": 761531.0,
-            "Reported_Avg_Price_BAM_MWh": 796.30,
-            "Extreme_Max_Min_Price_BAM_MWh": 850.00,
-            "SERC_Energy_Price_Cap_BAM_MWh": 989.46,
-            "SERC_Capacity_Cap_BAM_MW_h": 9.00,
-            "Status": "UNVERIFIED",
-        },
-        {
-            "Reserve_Category": "mFRR_Downward",
-            "Direction": -1,
-            "Activated_Energy_MWh": 888.0,
-            "Total_Energy_Cost_BAM": -323837.0,
-            "Reported_Avg_Price_BAM_MWh": -364.85,
-            "Extreme_Max_Min_Price_BAM_MWh": -400.00,
-            "SERC_Energy_Price_Cap_BAM_MWh": -401.28,
-            "SERC_Capacity_Cap_BAM_MW_h": 2.10,
-            "Status": "UNVERIFIED",
-        },
-    ]
-    for pdf_url in pdf_urls:
-        try:
-            resp = safe_get(session, pdf_url, timeout_tuple=(10, 25))
-            if resp.status_code == 200 and b"%PDF" in resp.content[:10]:
-                with pdfplumber.open(io.BytesIO(resp.content)) as pdf:
-                    first_page = next(iter(pdf.pages), None)
-                    first_page_text = first_page.extract_text() if first_page else ""
-                    if "aFRR" in first_page_text and "mFRR" in first_page_text:
-                        break
-        except Exception:
-            continue
-    record("balancing", "STATIC_REFERENCE", detail="Typed-in August 2025 values, not extracted or freshly verified")
-    return pd.DataFrame(verified_balancing_rows).assign(Status="STATIC_REFERENCE")
+    try:
+        resp = safe_get(session, BAL_REPORT_URL, timeout_tuple=(10, 25))
+        resp.raise_for_status()
+        if b"%PDF" not in resp.content[:10]:
+            raise ValueError("response is not a PDF")
+        with pdfplumber.open(io.BytesIO(resp.content)) as pdf:
+            text = "\n".join((page.extract_text() or "") for page in pdf.pages)
+        df = parse_balancing_text(text)
+        if df is None:
+            raise ValueError("report rows not found")
+        record("balancing", "STATIC_REFERENCE",
+               detail="Activity and price values read from NOS report, August 2025; SERC caps not in report",
+               source=BAL_REPORT_URL)
+        return df
+    except Exception as exc:
+        record("balancing", "FAILED", detail="NOS report not read: " + type(exc).__name__,
+               source=BAL_REPORT_URL)
+        return pd.DataFrame()
 
 
 def discover_derk_pdfs(page_url="http://www.derk.ba/DocumentsPDFs/"):
