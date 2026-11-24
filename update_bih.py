@@ -270,10 +270,10 @@ def parse_nos_table(html: str, day: datetime.date) -> pd.DataFrame:
         rows.append({
             "Date": day,
             "Hour": hour,
-            "Planned_Production_MW": _num(tds.get_text()),
-            "Actual_Production_MW": _num(tds.get_text()),
-            "Planned_Consumption_MW": _num(tds.get_text()),
-            "Actual_Consumption_MW": _num(tds.get_text()),
+            "Planned_Production_MW": _num(tds[1].get_text()),
+            "Actual_Production_MW": _num(tds[2].get_text()),
+            "Planned_Consumption_MW": _num(tds[3].get_text()),
+            "Actual_Consumption_MW": _num(tds[4].get_text()),
         })
     if not rows:
         raise NosParseError("productionTable has no data rows")
