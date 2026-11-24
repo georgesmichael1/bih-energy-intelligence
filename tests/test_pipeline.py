@@ -44,7 +44,7 @@ class PipelineTests(unittest.TestCase):
                     workbook.assert_not_called()
                 status=json.loads(Path('status.json').read_text())
                 self.assertEqual(status['rows'],1)
-                self.assertNotIn('entsoe', status['dataset_details'])
+                self.assertNotIn('entsoe', status['dataset_details'])  # ENTSO-E now runs in entsoe_daily.yml
                 self.assertFalse(list(Path('.').glob('*.xlsx')))
             finally: os.chdir(old)
 
@@ -64,11 +64,9 @@ class PipelineTests(unittest.TestCase):
     def test_static_balancing_label(self):
         with patch.object(u,'safe_get',side_effect=RuntimeError('offline')):
             data=u.fetch_nosbih_balancing_prices()
-        self.assertEqual(set(data['Status']),{'STATIC_REFERENCE'})
+        self.assertTrue(data.empty)
+        self.assertEqual(ps.DATASETS['balancing']['state'],'FAILED')
 
-if __name__=='__main__': unittest.main()
-
-class CurrentMasterContractTests(unittest.TestCase):
     def test_successful_population_uses_returned_values_only(self):
         ps.DATASETS.clear(); ps.record('population','OK')
         data=pd.DataFrame([{'Record_ID':'BIH-0092','Primary_Value':'old','Secondary_Value':'historical narrative',
@@ -79,3 +77,5 @@ class CurrentMasterContractTests(unittest.TestCase):
             result=pd.read_csv(path)
             self.assertIn('3,000,002',result.iloc[0]['Tariff_Price_Rate_Value'])
             self.assertEqual(result.iloc[0]['Secondary_Value'],'historical narrative')
+
+if __name__=='__main__': unittest.main()
