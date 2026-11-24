@@ -1,6 +1,6 @@
 """Regional day-ahead references, never a Bosnia tariff or border trade quote.
 
-Only HU has a verified reusable source here. RS and ME require a suitable
+Only HU has a verified reusable source here. RS requires a suitable
 provider agreement before their data may be written to the public repository.
 """
 import csv
@@ -17,7 +17,6 @@ from pipeline_status import atomic_text, record, utc_now
 MARKETS = {
     "HU": ("Hungary", "Europe/Budapest"),
     "RS": ("Serbia", "Europe/Belgrade"),
-    "ME": ("Montenegro", "Europe/Podgorica"),
 }
 HU_SOURCE = "https://api.energy-charts.info/price?bzn=HU"
 ATTRIBUTION = "Bundesnetzagentur | SMARD.de, via Fraunhofer ISE Energy-Charts"
@@ -67,7 +66,7 @@ def update_regional_prices(csv_path="regional_day_ahead_prices.csv", session=Non
     stamp = utc_now()
     # Fetch only the permitted series. Never fetch restricted prices then rely on
     # callers to remember not to publish them.
-    for market in ("RS", "ME"):
+    for market in ("RS",):
         record("price_" + market.lower(), "BLOCKED_RIGHTS", market=market,
                product="DAY_AHEAD", detail="Publication requires a suitable source/data agreement; no prices fetched")
     own_session = session is None
@@ -113,8 +112,8 @@ def update_regional_prices(csv_path="regional_day_ahead_prices.csv", session=Non
            delivery_days=sorted({r["Delivery_Date"] for r in results}), errors=errors,
            last_successful_fetch_at=stamp if current else None,
            licence_note="SMARD currently grants CC BY 4.0; wholesale-price licensing is under HEDWIG review")
-    record("dam", "PARTIAL", detail="Regional references: HU permitted; RS and ME blocked on publication rights",
-           markets=["RS", "HU", "ME"], product="DAY_AHEAD",
+    record("dam", "PARTIAL", detail="Regional references: HU permitted; RS blocked on publication rights; Montenegro out of scope",
+           markets=["RS", "HU"], product="DAY_AHEAD",
            not_bosnia_tariff=True, csv=csv_path)
     return results
 
@@ -164,6 +163,7 @@ def main():
     old = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
     DATASETS.clear()
     DATASETS.update(old.get("dataset_details", {}))
+    DATASETS.pop("price_me", None)
     update_regional_prices()
     mark_legacy_master()
     reserved = {"schema_version", "run_finished_at", "last_verified_date",
