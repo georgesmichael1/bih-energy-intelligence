@@ -46,6 +46,7 @@ def write_status(path, *, rows=None, legacy=None):
             item['last_success_at'] = item.get('last_success_at') or item['checked_at']
         else:
             item['last_success_at'] = prior.get('last_success_at')
+
     payload = {
         'schema_version': 2,
         'run_finished_at': utc_now(),
