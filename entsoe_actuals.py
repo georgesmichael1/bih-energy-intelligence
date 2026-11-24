@@ -100,9 +100,10 @@ def parse_load(body, start, end, fetched_at):
                       'Resolution': res, 'Value_MW': val, 'Source_Document': doc, 'Revision': rev,
                       'Fetched_At_UTC': fetched_at}
     out = [rows[k] for k in sorted(rows)]
-    if (not out or instant(out[0]['Interval_Start_UTC']) != start or instant(out[-1]['Interval_End_UTC']) != end
-            or any(a['Interval_End_UTC'] != b['Interval_Start_UTC'] for a, b in zip(out, out[1:]))):
-        raise DataError('Incomplete load day; not saved')
+    # Published points only. A day with missing intervals is kept as published (gaps are never zero-filled);
+    # _load_complete still marks it incomplete so later runs retry it.
+    if not out:
+        raise DataError('No actual-load points returned')
     return out
 
 
