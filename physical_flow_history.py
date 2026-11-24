@@ -14,51 +14,59 @@ from pipeline_status import atomic_text, utc_now
 
 DIRECTIONS = [(a,b) for n in ('HR','ME','RS') for a,b in [('BA',n),(n,'BA')]]
 
-def parse_available(body, source, target, day, now):
+def parse_range(body, source, target, first_day, last_day, now):
     if b'<!DOCTYPE' in body.upper() or b'<!ENTITY' in body.upper():
         raise e.DataError('XML declarations not supported')
     root = ET.fromstring(body)
     if root.tag.split('}')[-1] == 'Acknowledgement_MarketDocument':
         raise e.DataError('No data document returned')
     series = root.findall('{*}TimeSeries')
-    if len(series) != 1: raise e.DataError('Expected one directional series')
-    periods = series[0].findall('{*}Period')
-    if not periods: raise e.DataError('No published periods')
-    start,end=e.day_bounds(day)
+    if not series: raise e.DataError('No directional series')
+    start=e.day_bounds(first_day)[0]; end=e.day_bounds(last_day)[1]
     rows=[]
-    for period in periods:
-        left=e.instant(e.text(period,'{*}timeInterval/{*}start'))
-        right=e.instant(e.text(period,'{*}timeInterval/{*}end'))
-        if left<start or right>end: raise e.DataError('Period outside local day')
-        # Reuse unchanged strict unit/domain/curve/revision parser per published Period.
-        part=copy.deepcopy(root)
-        ts=part.findall('{*}TimeSeries')[0]
-        for p in list(ts.findall('{*}Period')): ts.remove(p)
-        published=copy.deepcopy(period)
-        if day==now.astimezone(e.TZ).date():
-            resolution=e.text(period,'{*}resolution')
-            seconds={'PT15M':900,'PT30M':1800,'PT60M':3600}.get(resolution)
-            if seconds is None:raise e.DataError('Unsupported resolution')
-            completed=[p for p in published.findall('{*}Point') if left+dt.timedelta(seconds=seconds*int(e.text(p,'{*}position')))<=now]
-            if not completed:continue
-            # Never expand A03 beyond the last explicitly published completed point today.
-            last=max(int(e.text(p,'{*}position')) for p in completed)
-            right=min(right,left+dt.timedelta(seconds=seconds*last))
-            published.find('{*}timeInterval/{*}end').text=e.iso(right)
-            for p in list(published.findall('{*}Point')):
-                if int(e.text(p,'{*}position'))>last:published.remove(p)
-        ts.append(published)
-        rows.extend(e.parse_document(ET.tostring(part),'physical_flows',source,target,left,right,utc_now()))
+    for original_ts in series:
+        periods=original_ts.findall('{*}Period')
+        if not periods: raise e.DataError('No published periods')
+        for period in periods:
+            left=e.instant(e.text(period,'{*}timeInterval/{*}start'))
+            right=e.instant(e.text(period,'{*}timeInterval/{*}end'))
+            if left<start or right>end: raise e.DataError('Period outside requested window')
+            part=copy.deepcopy(root)
+            for ts in list(part.findall('{*}TimeSeries')):part.remove(ts)
+            ts=copy.deepcopy(original_ts)
+            for p in list(ts.findall('{*}Period')):ts.remove(p)
+            published=copy.deepcopy(period)
+            if right>now:
+                resolution=e.text(period,'{*}resolution')
+                seconds={'PT15M':900,'PT30M':1800,'PT60M':3600}.get(resolution)
+                if seconds is None:raise e.DataError('Unsupported resolution')
+                completed=[p for p in published.findall('{*}Point') if left+dt.timedelta(seconds=seconds*int(e.text(p,'{*}position')))<=now]
+                if not completed:continue
+                last=max(int(e.text(p,'{*}position')) for p in completed)
+                right=min(right,left+dt.timedelta(seconds=seconds*last))
+                published.find('{*}timeInterval/{*}end').text=e.iso(right)
+                for p in list(published.findall('{*}Point')):
+                    if int(e.text(p,'{*}position'))>last:published.remove(p)
+            ts.append(published);part.append(ts)
+            rows.extend(e.parse_document(ET.tostring(part),'physical_flows',source,target,left,right,utc_now()))
     rows.sort(key=lambda r:e.instant(r['Interval_Start_UTC']))
-    seen=set()
+    unique={}
     for r in rows:
-        left=e.instant(r['Interval_Start_UTC']); right=e.instant(r['Interval_End_UTC'])
-        if left in seen: raise e.DataError('Duplicate interval')
-        seen.add(left)
-        if right>now: raise e.DataError('Future measured interval')
+        left=e.instant(r['Interval_Start_UTC']);right=e.instant(r['Interval_End_UTC'])
+        if right>now:raise e.DataError('Future measured interval')
+        if left in unique:
+            prior=unique[left]
+            # Exact repeated measurements are harmless; conflicting alternatives are not guessed.
+            if any(prior[k]!=r[k] for k in ('Interval_End_UTC','Resolution','Value_MW','Source_Document','Revision')):
+                raise e.DataError('Conflicting duplicate interval')
+        unique[left]=r
+    rows=[unique[k] for k in sorted(unique)]
     for a,b in zip(rows,rows[1:]):
         if e.instant(a['Interval_End_UTC'])>e.instant(b['Interval_Start_UTC']):raise e.DataError('Overlapping intervals')
     return rows
+
+def parse_available(body,source,target,day,now):
+    return parse_range(body,source,target,day,day,now)
 
 def complete(rows,day):
     start,end=e.day_bounds(day)
@@ -81,27 +89,30 @@ def update(output_dir='.', now=None, session=None, token=None):
     merged={(r['From_Area'],r['To_Area'],r['Interval_Start_UTC']):r for r in old if cutoff<=e.instant(r['Interval_Start_UTC'])<e.day_bounds(today)[1]}
     owns=session is None;session=session or e.make_session(); failures=[];stopped=False
     try:
-        for offset in range(31):
-            day=oldest+dt.timedelta(days=offset);start,end=e.day_bounds(day)
-            for source,target in DIRECTIONS:
-                saved=sorted([r for r in merged.values() if r['From_Area']==source and r['To_Area']==target and r['Interval_Start_Local'][:10]==day.isoformat()],key=lambda r:r['Interval_Start_UTC'])
-                # Backfill missing history. Refresh yesterday and today every run.
-                if day<today-dt.timedelta(days=1) and complete(saved,day) and all(e.instant(r['Fetched_At_UTC']).astimezone(e.TZ).date()==today for r in saved):continue
-                if not token or stopped:
-                    failures.append(dict(day=str(day),direction=source+'>'+target,reason='Token missing' if not token else 'Stopped after authentication/rate limit'));continue
-                try:
-                    body=e.fetch(session,token,dict(documentType='A11',in_Domain=e.AREAS[target],out_Domain=e.AREAS[source],periodStart=start.strftime('%Y%m%d%H%M'),periodEnd=end.strftime('%Y%m%d%H%M')))
-                    rows=parse_available(body,source,target,day,now)
-                    for r in rows:
-                        k=(source,target,r['Interval_Start_UTC']); prior=merged.get(k)
-                        if prior and prior['Source_Document']==r['Source_Document'] and int(prior['Revision'])>int(r['Revision']):raise e.DataError('Revision regression')
-                    # Merge actual intervals only. Preserve saved valid rows across source gaps/failures.
-                    for r in rows:merged[source,target,r['Interval_Start_UTC']]=r
-                except e.StopAPI:
-                    stopped=True;failures.append(dict(day=str(day),direction=source+'>'+target,reason='Authentication or rate limit'))
-                except (e.APIError,e.DataError,ValueError,KeyError,TypeError,ET.ParseError):
-                    failures.append(dict(day=str(day),direction=source+'>'+target,reason='Source unavailable or validation failed; saved intervals retained'))
-                time.sleep(1)
+        for source,target in DIRECTIONS:
+            if not token or stopped:
+                failures.append(dict(direction=source+'>'+target,reason='Token missing' if not token else 'Stopped after authentication/rate limit'));continue
+            fetch_first=today-dt.timedelta(days=1)
+            for offset in range(29):
+                day=oldest+dt.timedelta(days=offset)
+                saved=sorted([r for r in merged.values() if r['From_Area']==source and r['To_Area']==target and r['Interval_Start_Local'][:10]==str(day)],key=lambda r:r['Interval_Start_UTC'])
+                if not complete(saved,day):
+                    fetch_first=day;break
+            begin=time.monotonic()
+            try:
+                body=e.fetch(session,token,dict(documentType='A11',in_Domain=e.AREAS[target],out_Domain=e.AREAS[source],periodStart=e.day_bounds(fetch_first)[0].strftime('%Y%m%d%H%M'),periodEnd=e.day_bounds(today)[1].strftime('%Y%m%d%H%M')))
+                incoming=parse_range(body,source,target,fetch_first,today,now)
+                for r in incoming:
+                    k=(source,target,r['Interval_Start_UTC']);prior=merged.get(k)
+                    if prior and prior['Source_Document']==r['Source_Document'] and int(prior['Revision'])>int(r['Revision']):raise e.DataError('Revision regression')
+                for r in incoming:merged[source,target,r['Interval_Start_UTC']]=r
+                print(json.dumps(dict(direction=source+'>'+target,rows=len(incoming),elapsed_seconds=round(time.monotonic()-begin,2))),flush=True)
+            except e.StopAPI:
+                stopped=True;failures.append(dict(direction=source+'>'+target,reason='Authentication or rate limit'))
+            except (e.APIError,e.DataError,ValueError,KeyError,TypeError,ET.ParseError):
+                failures.append(dict(direction=source+'>'+target,reason='Source unavailable or validation failed; saved intervals retained'))
+                print(json.dumps(dict(direction=source+'>'+target,result='unavailable_or_invalid',elapsed_seconds=round(time.monotonic()-begin,2))),flush=True)
+            time.sleep(1)
     finally:
         if owns:session.close()
     rows=[merged[k] for k in sorted(merged)]
