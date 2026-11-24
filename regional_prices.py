@@ -1,7 +1,7 @@
 """Regional day-ahead references, never a Bosnia tariff or border trade quote.
 
-Only HU has a verified reusable source here. RS requires a suitable
-provider agreement before their data may be written to the public repository.
+Direct token-based A44 auction consumer for RS/HU. Owner approved public output;
+source attribution and primary-owner rights remain applicable. Token is server-side.
 """
 import csv
 import datetime as dt
@@ -59,62 +59,75 @@ def parse_hu_day(payload, delivery_day):
 
 
 def update_regional_prices(csv_path="regional_day_ahead_prices.csv", session=None, now=None):
+    """Fetch today's auction only. A separate price consumer, not the protected adapter."""
+    from price_xml_parser import parse_prices
+    import os
     now = now or dt.datetime.now(dt.timezone.utc)
     if now.tzinfo is None:
         raise ValueError("Current time must be timezone-aware")
-    today = now.astimezone(ZoneInfo(MARKETS["HU"][1])).date()
-    stamp = utc_now()
-    # Fetch only the permitted series. Never fetch restricted prices then rely on
-    # callers to remember not to publish them.
-    for market in ("RS",):
-        record("price_" + market.lower(), "BLOCKED_RIGHTS", market=market,
-               product="DAY_AHEAD", detail="Publication requires a suitable source/data agreement; no prices fetched")
+    token = os.environ.get("ENTSOE_API_TOKEN", "").strip()
+    stamp = now.astimezone(dt.timezone.utc).isoformat()
     own_session = session is None
     session = session or requests.Session()
-    results, errors = [], []
+    results, good = [], []
+    source = "https://web-api.tp.entsoe.eu/api"
+    areas = {"RS": "10YCS-SERBIATSOV", "HU": "10YHU-MAVIR----U"}
     try:
-        for day in (today, today + dt.timedelta(days=1)):
+        for market, (country, timezone) in MARKETS.items():
+            day = now.astimezone(ZoneInfo(timezone)).date()
             try:
-                response = session.get(HU_SOURCE, params={"start": day.isoformat(), "end": day.isoformat()},
-                                       timeout=(10, 20), verify=True)
-                response.raise_for_status()
-                rows = parse_hu_day(response.json(), day)
-                for row in rows:
-                    row["Fetched_At"] = stamp
+                if not token:
+                    raise ValueError("Missing server-side token")
+                start = dt.datetime.combine(day, dt.time(), ZoneInfo(timezone)).astimezone(dt.timezone.utc)
+                end = dt.datetime.combine(day + dt.timedelta(days=1), dt.time(), ZoneInfo(timezone)).astimezone(dt.timezone.utc)
+                response = session.get(source, params={"securityToken": token, "documentType": "A44",
+                    "contract_MarketAgreement.type": "A01", "in_Domain": areas[market], "out_Domain": areas[market],
+                    "periodStart": start.strftime("%Y%m%d%H%M"), "periodEnd": end.strftime("%Y%m%d%H%M")},
+                    timeout=(10, 30), verify=True)
+                # Never propagate requests exception strings: their URL can contain token.
+                if response.status_code != 200:
+                    raise ValueError("HTTP status " + str(response.status_code))
+                parsed = parse_prices(response.content, areas[market])
+                if parsed[0]["start"] != start or parsed[-1]["end"] != end:
+                    raise ValueError("Wrong delivery-day boundaries")
+                if any(a["end"] != b["start"] for a,b in zip(parsed, parsed[1:])):
+                    raise ValueError("Delivery-day interval gap or overlap")
+                rows = [{"Market": market, "Country": country, "Product": "DAY_AHEAD",
+                         "Delivery_Date": day.isoformat(), "Interval_Start_UTC": row["start"].isoformat(),
+                         "Interval_End_UTC": row["end"].isoformat(), "Price_EUR_MWh": row["price"],
+                         "Source": source, "Attribution": "ENTSO-E Transparency Platform; primary owner: " + ("SEEPEX" if market == "RS" else "HUPX"),
+                         "License": "ENTSO-E Terms of Use; primary-owner rights apply, not a blanket CC-BY grant",
+                         "Fetched_At": stamp} for row in parsed]
                 results.extend(rows)
-            except (requests.RequestException, ValueError, TypeError, KeyError) as exc:
-                errors.append({"delivery_day": day.isoformat(), "kind": type(exc).__name__})
+                good.append(market)
+                record("price_" + market.lower(), "OK", market=market, product="DAY_AHEAD", source=source,
+                       delivery_days=[day.isoformat()], intervals=len(rows), fetched_at=stamp,
+                       detail="Today's complete auction curve fetched at run time; not instant intraday",
+                       resolution_note="ENTSO-E interval grid; RS hourly auction may repeat across quarter-hours",
+                       last_successful_fetch_at=stamp)
+            except (requests.RequestException, ValueError, TypeError, KeyError, AttributeError) as exc:
+                record("price_" + market.lower(), "FAILED", market=market, source=source,
+                       detail="Today auction retrieval/validation failed: " + type(exc).__name__ + "; cached rows not confirmed current")
     finally:
         if own_session:
             session.close()
-    current = [r for r in results if r["Delivery_Date"] == today.isoformat()]
     if results:
-        output = io.StringIO(newline="")
-        writer = csv.DictWriter(output, fieldnames=COLUMNS)
-        writer.writeheader()
         prior = []
         if Path(csv_path).exists():
             with open(csv_path, newline="", encoding="utf-8") as handle:
                 prior = list(csv.DictReader(handle))
-        replaced = {r["Delivery_Date"] for r in results}
-        cutoff = (today - dt.timedelta(days=29)).isoformat()
-        retained = [r for r in prior if r.get("Market") == "HU"
-                    and r.get("Delivery_Date", "") >= cutoff
-                    and r.get("Delivery_Date") not in replaced]
-        writer.writerows(sorted(retained + results, key=lambda r: r["Interval_Start_UTC"]))
+        replaced = {(r["Market"], r["Delivery_Date"]) for r in results}
+        cutoff = (now.date()-dt.timedelta(days=29)).isoformat()
+        retained = [r for r in prior if r.get("Market") in MARKETS and r.get("Delivery_Date", "") >= cutoff
+                    and (r.get("Market"),r.get("Delivery_Date")) not in replaced]
+        output = io.StringIO(newline="")
+        writer = csv.DictWriter(output, fieldnames=COLUMNS)
+        writer.writeheader()
+        writer.writerows(sorted(retained + results, key=lambda r:(r["Market"],r["Interval_Start_UTC"])))
         atomic_text(csv_path, output.getvalue())
-    # Tomorrow may not have cleared yet. That is not a failure of today's curve.
-    # Failing today's fetch never becomes OK merely because tomorrow was returned.
-    record("price_hu", "OK" if current else "FAILED", market="HU", product="DAY_AHEAD",
-           detail="Latest published Hungarian day-ahead intervals; not an intraday quote" if current
-                  else "No complete current delivery-day curve; any saved rows retain their delivery dates",
-           source=HU_SOURCE, attribution=ATTRIBUTION, license=LICENSE_URL,
-           delivery_days=sorted({r["Delivery_Date"] for r in results}), errors=errors,
-           last_successful_fetch_at=stamp if current else None,
-           licence_note="SMARD currently grants CC BY 4.0; wholesale-price licensing is under HEDWIG review")
-    record("dam", "PARTIAL", detail="Regional references: HU permitted; RS blocked on publication rights; Montenegro out of scope",
-           markets=["RS", "HU"], product="DAY_AHEAD",
-           not_bosnia_tariff=True, csv=csv_path)
+    record("dam", "OK" if len(good)==len(MARKETS) else "PARTIAL", markets=list(MARKETS),
+           product="DAY_AHEAD", csv=str(csv_path), not_bosnia_tariff=True,
+           detail="Today's RS/HU auction curves validated" if len(good)==len(MARKETS) else "Required current-day market missing")
     return results
 
 
