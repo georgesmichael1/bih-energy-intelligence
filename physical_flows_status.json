@@ -1,12 +1,12 @@
 {
   "state": "OK",
-  "checked_at": "2026-11-24T14:51:49+00:00",
+  "checked_at": "2026-11-24T16:42:38+00:00",
   "timezone": "Europe/Sarajevo",
   "requested_first_day": "2026-10-25",
   "requested_last_day": "2026-11-24",
   "requested_delivery_days": 31,
   "unit": "MW",
-  "row_count": 4416,
+  "row_count": 4428,
   "historical_incomplete_pairs": [],
   "request_failures": [],
   "coverage": [
@@ -1273,44 +1273,44 @@
     {
       "day": "2026-11-24",
       "direction": "BA>HR",
-      "rows": 15,
+      "rows": 17,
       "complete": false,
-      "latest_end_utc": "2026-11-24T14:00:00Z"
+      "latest_end_utc": "2026-11-24T16:00:00Z"
     },
     {
       "day": "2026-11-24",
       "direction": "HR>BA",
-      "rows": 15,
+      "rows": 17,
       "complete": false,
-      "latest_end_utc": "2026-11-24T14:00:00Z"
+      "latest_end_utc": "2026-11-24T16:00:00Z"
     },
     {
       "day": "2026-11-24",
       "direction": "BA>ME",
-      "rows": 15,
+      "rows": 17,
       "complete": false,
-      "latest_end_utc": "2026-11-24T14:00:00Z"
+      "latest_end_utc": "2026-11-24T16:00:00Z"
     },
     {
       "day": "2026-11-24",
       "direction": "ME>BA",
-      "rows": 15,
+      "rows": 17,
       "complete": false,
-      "latest_end_utc": "2026-11-24T14:00:00Z"
+      "latest_end_utc": "2026-11-24T16:00:00Z"
     },
     {
       "day": "2026-11-24",
       "direction": "BA>RS",
-      "rows": 15,
+      "rows": 17,
       "complete": false,
-      "latest_end_utc": "2026-11-24T14:00:00Z"
+      "latest_end_utc": "2026-11-24T16:00:00Z"
     },
     {
       "day": "2026-11-24",
       "direction": "RS>BA",
-      "rows": 15,
+      "rows": 17,
       "complete": false,
-      "latest_end_utc": "2026-11-24T14:00:00Z"
+      "latest_end_utc": "2026-11-24T16:00:00Z"
     }
   ],
   "note": "Raw directional measurements. Today contains published completed intervals only. Net export = BA outbound minus inbound; match exact UTC interval and resolution. Missing pairs are gaps, never zero."
