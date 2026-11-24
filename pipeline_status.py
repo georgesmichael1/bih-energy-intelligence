@@ -1,4 +1,5 @@
 """Per-dataset run state. A fetch timestamp is not a source verification date."""
+
 import datetime as dt
 import json
 import os
@@ -6,11 +7,22 @@ from pathlib import Path
 
 DATASETS = {}
 
+
 def utc_now():
     return dt.datetime.now(dt.timezone.utc).isoformat(timespec='seconds')
 
+
 def record(name, state, *, detail='', **metadata):
-    DATASETS[name] = {'state': state, 'checked_at': utc_now(), 'detail': detail, **metadata}
+    now = utc_now()
+    entry = {
+        'state': state,
+        'checked_at': now,
+        'last_attempt_at': metadata.pop('last_attempt_at', now),
+        'detail': detail,
+        **metadata,
+    }
+    DATASETS[name] = entry
+
 
 def atomic_text(path, text):
     path = Path(path)
@@ -20,6 +32,7 @@ def atomic_text(path, text):
         handle.write(text)
     os.replace(tmp, path)
 
+
 def write_status(path, *, rows=None, legacy=None):
     try:
         old = json.loads(Path(path).read_text(encoding='utf-8'))
@@ -28,8 +41,11 @@ def write_status(path, *, rows=None, legacy=None):
     previous = old.get('dataset_details', {})
     for name, item in DATASETS.items():
         prior = previous.get(name, {})
-        item['last_success_at'] = (item['checked_at'] if item['state'] == 'OK'
-                                   else prior.get('last_success_at'))
+        item['last_attempt_at'] = item.get('last_attempt_at') or item['checked_at']
+        if item['state'] == 'OK':
+            item['last_success_at'] = item.get('last_success_at') or item['checked_at']
+        else:
+            item['last_success_at'] = prior.get('last_success_at')
     payload = {
         'schema_version': 2,
         'run_finished_at': utc_now(),
@@ -46,6 +62,7 @@ def write_status(path, *, rows=None, legacy=None):
     }
     atomic_text(path, json.dumps(payload, indent=2, allow_nan=False) + '\n')
     return payload
+
 
 def problems(status):
     issues = [f'{k}: {v}' for k, v in status.get('datasets', {}).items()
