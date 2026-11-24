@@ -100,6 +100,7 @@ NOS_PAGE = "https://www.nosbih.ba/en/ees/graf-potrosnje/"
 NOS_AJAX_URL = "https://www.nosbih.ba/en/wp-admin/admin-ajax.php"
 NOS_HOURLY_CSV = "nos_hourly.csv"
 NOS_TZ = ZoneInfo("Europe/Sarajevo")
+NOS_BACKFILL_MAX = 10
 HISTORY_DAYS = 31  # today plus the previous 30 Sarajevo days
 NOS_TIMEOUT = (10, 30)
 NOS_MAX_ATTEMPTS = 2
@@ -323,13 +324,39 @@ def load_nos_history() -> pd.DataFrame:
     return pd.DataFrame(columns=NOS_COLS)
 
 
-def _value_count(df: pd.DataFrame) -> int:
-    return int(df[NOS_VALUE_COLS].notna().sum().sum()) if len(df) else 0
+def required_hours(day: datetime.date) -> set:
+    # Hours 1..24 for a normal day; the feed labels 00:00 as hour 24. A 23-hour DST day needs 1..23.
+    start = datetime.datetime.combine(day, datetime.time(), NOS_TZ)
+    length = int(((start + datetime.timedelta(days=1)).astimezone(datetime.timezone.utc) - start.astimezone(datetime.timezone.utc)).total_seconds() // 3600)
+    return set(range(1, min(24, length) + 1))
 
 
 def day_is_complete(hist: pd.DataFrame, day: datetime.date) -> bool:
-    # 23 to 25 hourly rows; the legacy Hour column is not DST-safe, so allow 23.
-    return int((hist["Date"] == day).sum()) >= 23 if len(hist) else False
+    # Complete = every required hour present and all four series populated (a gap is never a zero).
+    if not len(hist):
+        return False
+    rows = hist[hist["Date"] == day]
+    return required_hours(day) <= set(rows["Hour"]) and not rows[NOS_VALUE_COLS].isna().any().any()
+
+
+def apply_day(hist: pd.DataFrame, new: pd.DataFrame, day: datetime.date):
+    """Merge one fetched day. Returns (hist, notes).
+    A series with any value in the source answer is authoritative for that day, so values the source
+    removed disappear. A series the answer returns entirely blank keeps its saved values and is reported.
+    An answer missing required hours never deletes saved rows."""
+    old_day = hist[hist["Date"] == day] if len(hist) else hist
+    notes = []
+    if not required_hours(day) <= set(new["Hour"]):
+        if len(old_day):
+            notes.append(f"{day}: source answer missing hours, saved rows kept")
+        return merge_nos(hist, new), notes
+    new = new.copy()
+    for c in NOS_VALUE_COLS:
+        if len(old_day) and old_day[c].notna().any() and not new[c].notna().any():
+            saved = old_day.set_index("Hour")[c]
+            new[c] = new["Hour"].map(saved)
+            notes.append(f"{day}: {c} blank at source, saved values kept")
+    return merge_nos(hist, new, replace=True), notes
 
 
 def merge_nos(hist: pd.DataFrame, new: pd.DataFrame, replace: bool = False) -> pd.DataFrame:
@@ -374,9 +401,11 @@ def update_nos_history() -> dict:
     attempt_stamp = datetime.datetime.now(NOS_TZ).isoformat(timespec="minutes")
     today = _sarajevo_today()
     window = [today - datetime.timedelta(days=i) for i in range(HISTORY_DAYS)]
-    have = {d for d in window if day_is_complete(hist, d)}  # incomplete older days are fetched again
+    have = {d for d in window if day_is_complete(hist, d)}
     refetch = {today, today - datetime.timedelta(days=1)}
-    todo = [d for d in window if d not in have or d in refetch]
+    # Recent days first; at most NOS_BACKFILL_MAX older incomplete days per run so requests stay bounded.
+    older_missing = [d for d in window if d not in have and d not in refetch][:NOS_BACKFILL_MAX]
+    todo = sorted(refetch | set(older_missing), reverse=True)
     stale_days = []
     failed = []
     error_counts: dict[str, int] = {}
@@ -387,13 +416,8 @@ def update_nos_history() -> dict:
             try:
                 df = fetch_nos_day(session, d)
                 df["Fetched_At"] = attempt_stamp
-                old_day = hist[hist["Date"] == d] if len(hist) else hist
-                if len(df) >= 23 and _value_count(df) >= _value_count(old_day):
-                    hist = merge_nos(hist, df, replace=True)
-                else:
-                    # Answer has fewer values than saved: keep saved values, never blank them, and say so.
-                    stale_days.append(str(d))
-                    hist = merge_nos(hist, df)
+                hist, notes = apply_day(hist, df, d)
+                stale_days.extend(notes)
                 succeeded_days += 1
             except Exception as e:
                 classified = _classify_nos_exception(e, f"NOS day {d}")
@@ -416,6 +440,7 @@ def update_nos_history() -> dict:
         attempt_stamp if succeeded_days > 0 else _latest_fetched_at(hist)
     )
 
+    incomplete_days = [str(d) for d in window if d != today and not day_is_complete(hist, d)]
     with_actual = hist.dropna(subset=["Actual_Production_MW"]) if len(hist) else pd.DataFrame()
     latest_actual = None
     is_fresh = False
@@ -441,9 +466,10 @@ def update_nos_history() -> dict:
             f"{succeeded_days}/{len(todo)} NOS day requests succeeded; "
             f"{len(failed)} failed ({error_counts}); cached rows preserved"
         )
-    elif stale_days:
+    elif stale_days or incomplete_days:
         state = "PARTIAL"
-        detail = f"Saved values kept for {len(stale_days)} day(s) where the latest source answer had fewer values: {stale_days}"
+        detail = (f"Retained saved data, not confirmed current: {stale_days}; "
+                  f"{len(incomplete_days)} day(s) in the 31-day window still incomplete: {incomplete_days}")
     elif latest_actual is None:
         state = "NO_DATA"
         detail = "No actual production values"
@@ -464,7 +490,8 @@ def update_nos_history() -> dict:
         days_requested=len(todo),
         days_succeeded=succeeded_days,
         error_counts=error_counts,
-        retained_over_thinner_source_days=stale_days,
+        retained_stale_notes=stale_days,
+        incomplete_days=incomplete_days,
         source=NOS_PAGE,
         dst_note="Legacy Date/Hour feed is not DST-safe; ENTSO-E uses UTC",
     )
