@@ -100,7 +100,7 @@ NOS_PAGE = "https://www.nosbih.ba/en/ees/graf-potrosnje/"
 NOS_AJAX_URL = "https://www.nosbih.ba/en/wp-admin/admin-ajax.php"
 NOS_HOURLY_CSV = "nos_hourly.csv"
 NOS_TZ = ZoneInfo("Europe/Sarajevo")
-HISTORY_DAYS = 31  # today plus previous 30 Sarajevo days
+HISTORY_DAYS = 30
 NOS_TIMEOUT = (10, 30)
 NOS_MAX_ATTEMPTS = 2
 NOS_VALUE_COLS = [
@@ -323,14 +323,7 @@ def load_nos_history() -> pd.DataFrame:
     return pd.DataFrame(columns=NOS_COLS)
 
 
-def full_window_requested() -> bool:
-    return os.environ.get("FULL_WINDOW", "0") == "1"
-
-
-def merge_nos(hist: pd.DataFrame, new: pd.DataFrame, replace: bool = False) -> pd.DataFrame:
-    if replace and not hist.empty and not new.empty:
-        # Fresh full-window fetch: the source answer replaces that day wholesale.
-        hist = hist[~hist["Date"].isin(set(new["Date"]))]
+def merge_nos(hist: pd.DataFrame, new: pd.DataFrame) -> pd.DataFrame:
     # A fresh non-missing value replaces the stored one.
     # A blank in a later fetch never erases a value already stored.
     if hist.empty:
@@ -363,15 +356,14 @@ def create_nos_session():
 
 
 def update_nos_history() -> dict:
-    # Scheduled runs: missing days plus today/yesterday. Manual runs (FULL_WINDOW=1): all 31 days refetched.
+    # Fetch the 30-day window: all days missing from history, plus today and yesterday (actuals keep arriving).
     hist = load_nos_history()
     session = create_nos_session()
     attempt_stamp = datetime.datetime.now(NOS_TZ).isoformat(timespec="minutes")
     today = _sarajevo_today()
     window = [today - datetime.timedelta(days=i) for i in range(HISTORY_DAYS)]
     have = set(hist["Date"]) if len(hist) else set()
-    full = full_window_requested()
-    refetch = set(window) if full else {today, today - datetime.timedelta(days=1)}
+    refetch = {today, today - datetime.timedelta(days=1)}
     todo = [d for d in window if d not in have or d in refetch]
     failed = []
     error_counts: dict[str, int] = {}
@@ -382,7 +374,7 @@ def update_nos_history() -> dict:
             try:
                 df = fetch_nos_day(session, d)
                 df["Fetched_At"] = attempt_stamp
-                hist = merge_nos(hist, df, replace=full)
+                hist = merge_nos(hist, df)
                 succeeded_days += 1
             except Exception as e:
                 classified = _classify_nos_exception(e, f"NOS day {d}")
