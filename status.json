@@ -1,12 +1,12 @@
 {
   "schema_version": 2,
-  "run_finished_at": "2026-11-24T09:35:00+00:00",
+  "run_finished_at": "2026-11-24T09:41:32+00:00",
   "last_verified_date": "24 Nov 2026",
   "last_verified_date_is_legacy": true,
   "verification_note": "No whole-master verification performed; use dataset_details.",
   "rows": 487,
   "nos_source": "admin-ajax",
-  "nos_fetched_at": "2026-11-24T10:32+01:00",
+  "nos_fetched_at": "2026-11-24T10:38+01:00",
   "nos_days_requested": 2,
   "nos_days_failed": [
     "2026-11-24: HTTPSConnectionPool(host='www.nosbih.ba', port=443): Read timed out.",
@@ -24,41 +24,41 @@
     "nos": "FAILED: PARTIAL: One or more NOS day requests failed",
     "dam": "FAILED: UNVERIFIED: Legacy positional price parser disabled for publication",
     "flows": "FAILED: FAILED: ConnectionError",
-    "entsoe_load_forecast": "FAILED: FAILED: Request/validation failed: API acknowledgement, code 999",
-    "entsoe_physical_flows": "FAILED: FAILED: Request/validation failed: API acknowledgement, code 999",
-    "entsoe_hr_schedules": "FAILED: FAILED: Request/validation failed: API acknowledgement, code 999"
+    "entsoe_load_forecast": "FAILED: FAILED: Request/validation failed: API acknowledgement, code 999: No matching data found for Data item DAYAHEADTOTALLOADFORECASTR3 6.1.B (10YBA-JPCC-----B) and interval 2026-11-22T23:00:00Z2026-11-23T23:00:00Z.",
+    "entsoe_physical_flows": "FAILED: FAILED: Request/validation failed: API acknowledgement, code 999: No matching data found for Data item NETCROSSBORDERPHYSICALFLOWSR3 12.1.G (10YHR-HEP------M, 10YBA-JPCC-----B) and interval 2026-11-22T23:00:00Z2026-1",
+    "entsoe_hr_schedules": "FAILED: FAILED: Request/validation failed: API acknowledgement, code 999: No matching data found for Data item COMMERCIALSCHEDULES 12.1.F (10YHR-HEP------M, 10YBA-JPCC-----B) and interval 2026-11-22T23:00:00Z2026-11-23T23:00"
   },
   "dataset_details": {
     "balancing": {
       "state": "STATIC_REFERENCE",
-      "checked_at": "2026-11-24T09:32:18+00:00",
+      "checked_at": "2026-11-24T09:38:37+00:00",
       "detail": "Typed-in August 2025 values, not extracted or freshly verified",
       "last_success_at": null
     },
     "fx": {
       "state": "PARSED_UNDATED",
-      "checked_at": "2026-11-24T09:32:21+00:00",
+      "checked_at": "2026-11-24T09:38:39+00:00",
       "detail": "Source publication date not validated; do not relabel as live",
       "source": "https://cbbh.ba/CurrencyExchange/",
       "last_success_at": null
     },
     "population": {
       "state": "OK",
-      "checked_at": "2026-11-24T09:32:21+00:00",
+      "checked_at": "2026-11-24T09:38:39+00:00",
       "detail": "Page values parsed",
       "source": "https://www.worldometers.info/world-population/bosnia-and-herzegovina-population/",
       "source_as_of": null,
-      "last_success_at": "2026-11-24T09:32:21+00:00"
+      "last_success_at": "2026-11-24T09:38:39+00:00"
     },
     "bhas": {
       "state": "UNVERIFIED",
-      "checked_at": "2026-11-24T09:32:21+00:00",
+      "checked_at": "2026-11-24T09:38:39+00:00",
       "detail": "Mixed parsed and typed-in defaults; field dates not validated",
       "last_success_at": null
     },
     "worldbank": {
       "state": "OK",
-      "checked_at": "2026-11-24T09:32:23+00:00",
+      "checked_at": "2026-11-24T09:38:43+00:00",
       "detail": "Historical values, not today's observation",
       "indicators_parsed": [
         "NE.EXP.GNFS.CD",
@@ -70,11 +70,11 @@
         2020,
         2025
       ],
-      "last_success_at": "2026-11-24T09:32:23+00:00"
+      "last_success_at": "2026-11-24T09:38:43+00:00"
     },
     "nos": {
       "state": "PARTIAL",
-      "checked_at": "2026-11-24T09:33:58+00:00",
+      "checked_at": "2026-11-24T09:40:17+00:00",
       "detail": "One or more NOS day requests failed",
       "latest_actual": "2026-11-24 04:00",
       "source": "https://www.nosbih.ba/en/ees/graf-potrosnje/",
@@ -83,20 +83,20 @@
     },
     "dam": {
       "state": "UNVERIFIED",
-      "checked_at": "2026-11-24T09:33:58+00:00",
+      "checked_at": "2026-11-24T09:40:17+00:00",
       "detail": "Legacy positional price parser disabled for publication",
       "last_success_at": null
     },
     "flows": {
       "state": "FAILED",
-      "checked_at": "2026-11-24T09:34:45+00:00",
+      "checked_at": "2026-11-24T09:41:03+00:00",
       "detail": "ConnectionError",
       "last_success_at": null
     },
     "entsoe_load_forecast": {
       "state": "FAILED",
-      "checked_at": "2026-11-24T09:34:46+00:00",
-      "detail": "Request/validation failed: API acknowledgement, code 999",
+      "checked_at": "2026-11-24T09:41:13+00:00",
+      "detail": "Request/validation failed: API acknowledgement, code 999: No matching data found for Data item DAYAHEADTOTALLOADFORECASTR3 6.1.B (10YBA-JPCC-----B) and interval 2026-11-22T23:00:00Z2026-11-23T23:00:00Z.",
       "target_local_day": "2026-11-23",
       "source": "https://web-api.tp.entsoe.eu/api",
       "coverage_start_utc": "2026-11-22T23:00:00Z",
@@ -105,8 +105,8 @@
     },
     "entsoe_physical_flows": {
       "state": "FAILED",
-      "checked_at": "2026-11-24T09:34:46+00:00",
-      "detail": "Request/validation failed: API acknowledgement, code 999",
+      "checked_at": "2026-11-24T09:41:26+00:00",
+      "detail": "Request/validation failed: API acknowledgement, code 999: No matching data found for Data item NETCROSSBORDERPHYSICALFLOWSR3 12.1.G (10YHR-HEP------M, 10YBA-JPCC-----B) and interval 2026-11-22T23:00:00Z2026-1",
       "target_local_day": "2026-11-23",
       "source": "https://web-api.tp.entsoe.eu/api",
       "coverage_start_utc": "2026-11-22T23:00:00Z",
@@ -115,8 +115,8 @@
     },
     "entsoe_hr_schedules": {
       "state": "FAILED",
-      "checked_at": "2026-11-24T09:34:59+00:00",
-      "detail": "Request/validation failed: API acknowledgement, code 999",
+      "checked_at": "2026-11-24T09:41:32+00:00",
+      "detail": "Request/validation failed: API acknowledgement, code 999: No matching data found for Data item COMMERCIALSCHEDULES 12.1.F (10YHR-HEP------M, 10YBA-JPCC-----B) and interval 2026-11-22T23:00:00Z2026-11-23T23:00",
       "target_local_day": "2026-11-23",
       "source": "https://web-api.tp.entsoe.eu/api",
       "coverage_start_utc": "2026-11-22T23:00:00Z",
