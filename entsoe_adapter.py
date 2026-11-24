@@ -213,6 +213,10 @@ def persist(path, rows, cutoff):
     atomic_text(path, out.getvalue())
 
 
+BACKFILL_MAX_PER_RUN = 10      # older incomplete days recovered per dataset per run, newest first
+BACKFILL_TIME_BUDGET_S = 420   # stop recovering older days after this many seconds
+
+
 def _saved_complete_days(path, directions, days):
     """Local days whose saved rows fully cover day_bounds for every direction. Gaps are never zero."""
     path = Path(path)
@@ -293,6 +297,8 @@ def update_entsoe(output_dir='.', day=None, session=None, token=None, include_ph
                 window = [day - dt.timedelta(days=n) for n in range(1, 30)]
                 have = _saved_complete_days(path, directions, window)
                 backfill = [d for d in window if d not in have]  # newest first
+                skipped = backfill[BACKFILL_MAX_PER_RUN:]
+                backfill = backfill[:BACKFILL_MAX_PER_RUN]
             cutoff = day_bounds(day - dt.timedelta(days=29))[0] if auto else start - dt.timedelta(days=29)
             try:
                 rows = fetch_day(dataset, directions, day)
@@ -311,8 +317,9 @@ def update_entsoe(output_dir='.', day=None, session=None, token=None, include_ph
                 record(name, 'FAILED', detail='Fetch/validation/write failed: ' + type(exc).__name__, **meta)
                 continue
             recovered, unavailable = [], []
+            began = time.monotonic()
             for older in backfill:
-                if stopped:
+                if stopped or time.monotonic() - began > BACKFILL_TIME_BUDGET_S:
                     unavailable.append(older.isoformat())
                     continue
                 try:
@@ -324,6 +331,7 @@ def update_entsoe(output_dir='.', day=None, session=None, token=None, include_ph
                 except (APIError, DataError, ValueError, OSError, KeyError, TypeError):
                     unavailable.append(older.isoformat())
             if auto:
+                unavailable += [d.isoformat() for d in skipped]  # not yet attempted, still incomplete
                 meta.update(recovered_days=recovered, unavailable_days=unavailable)
             if unavailable:
                 record(name, 'PARTIAL', detail='Yesterday saved; ' + str(len(unavailable)) +
