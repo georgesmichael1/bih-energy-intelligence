@@ -1,9 +1,12 @@
+import csv
+import io
+import os
 import datetime as dt
 import json
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 from zoneinfo import ZoneInfo
 
 import regional_prices as r
@@ -79,6 +82,77 @@ class RegionalPriceTests(unittest.TestCase):
             self.assertEqual(rows, [])
             self.assertEqual(target.read_bytes(), b'cached original\n')
             self.assertEqual(DATASETS['price_hu']['state'], 'FAILED')
+
+
+class IntegrationTests(unittest.TestCase):
+    def test_master_labels_preserve_numbers_source_and_other_rows(self):
+        row = {'Record_ID': 'BIH-0487', 'Primary_Value': '279.2',
+               'Verification_Status_Source_URL': 'VERIFIED 22.11.2026 | RS',
+               'Status_Stage_Tier': 'LIVE DAILY FEED',
+               'Entity_Project_Indicator_Name': 'SEEPEX/HUPX', 'Extra': 'keep'}
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'master.csv'
+            output = io.StringIO()
+            writer = csv.DictWriter(output, fieldnames=list(row))
+            writer.writeheader()
+            writer.writerows([row, {**row, 'Record_ID': 'OTHER'}])
+            path.write_text(output.getvalue())
+            r.mark_legacy_master(path)
+            rows = list(csv.DictReader(io.StringIO(path.read_text())))
+            self.assertEqual(rows[0]['Primary_Value'], '279.2')
+            self.assertEqual(rows[0]['Extra'], 'keep')
+            self.assertTrue(rows[0]['Status_Stage_Tier'].startswith('HISTORICAL'))
+            self.assertIn('VERIFIED 22.11.2026 | RS', rows[0]['Verification_Status_Source_URL'])
+            self.assertNotIn('HUPX', rows[0]['Entity_Project_Indicator_Name'])
+            self.assertEqual(rows[1], {**row, 'Record_ID': 'OTHER'})
+            before = path.read_bytes()
+            r.mark_legacy_master(path)
+            self.assertEqual(before, path.read_bytes())
+
+    def test_cli_preserves_prior_dataset_results_and_legacy_metadata(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            old = os.getcwd()
+            os.chdir(tmp)
+            try:
+                Path('status.json').write_text(json.dumps({
+                    'dataset_details': {'nos': {'state': 'OK', 'checked_at': 'historic', 'detail': 'ok'}},
+                    'rows': 487, 'nos_custom': 'keep', 'last_verified_date': 'historic'}))
+                def update():
+                    r.record('price_hu', 'FAILED', detail='mock failure')
+                with patch.object(r, 'update_regional_prices', side_effect=update):
+                    r.main()
+                status = json.loads(Path('status.json').read_text())
+                self.assertEqual(status['dataset_details']['nos']['state'], 'OK')
+                self.assertEqual(status['dataset_details']['price_hu']['state'], 'FAILED')
+                self.assertEqual(status['nos_custom'], 'keep')
+                self.assertEqual(status['rows'], 487)
+                self.assertEqual(status['last_verified_date'], 'historic')
+            finally:
+                os.chdir(old)
+
+    def test_history_retention_replaces_dates_and_old_cache_never_current(self):
+        day = dt.date(2026, 11, 24)
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / 'prices.csv'
+            prior = r.parse_hu_day(payload(day-dt.timedelta(days=1)), day-dt.timedelta(days=1))
+            for row in prior:
+                row['Fetched_At'] = 'old'
+            output = io.StringIO()
+            writer = csv.DictWriter(output, fieldnames=r.COLUMNS)
+            writer.writeheader()
+            writer.writerows(prior)
+            target.write_text(output.getvalue())
+            session = Mock()
+            response = Mock()
+            response.json.return_value = payload(day)
+            session.get.return_value = response
+            r.update_regional_prices(target, session, dt.datetime(2026,11,24,tzinfo=dt.timezone.utc))
+            self.assertEqual(len(list(csv.DictReader(io.StringIO(target.read_text())))),192)
+            session.get.side_effect = r.requests.Timeout('mock')
+            before = target.read_bytes()
+            r.update_regional_prices(target, session, dt.datetime(2026,11,25,tzinfo=dt.timezone.utc))
+            self.assertEqual(DATASETS['price_hu']['state'], 'FAILED')
+            self.assertEqual(target.read_bytes(), before)
 
 
 if __name__ == '__main__':
