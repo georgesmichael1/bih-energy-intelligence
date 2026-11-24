@@ -16,6 +16,7 @@ jobs:
   update-bih-master-csv:
     runs-on: ubuntu-latest
     env:
+      ENTSOE_API_TOKEN: ${{ secrets.ENTSOE_API_TOKEN }}
       SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
     timeout-minutes: 15
 
@@ -33,6 +34,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Run offline tests
+        run: python -m unittest discover -s tests -v
+
       - name: Run BiH updater
         run: python3 update_bih.py
 
@@ -41,7 +45,7 @@ jobs:
         run: |
           git config user.name "BiH Energy Auto-Updater"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          for f in bih_data.csv Generation_Monthly.csv change_log.csv status.json nos_hourly.csv flows_snapshots.csv; do
+          for f in bih_data.csv Generation_Monthly.csv change_log.csv status.json nos_hourly.csv flows_snapshots.csv entsoe_load_forecast.csv entsoe_physical_flows.csv entsoe_hr_schedules.csv; do
             [ -f "$f" ] && git add "$f"
           done
           if git diff --staged --quiet; then
@@ -57,31 +61,21 @@ jobs:
         run: |
           python3 - <<'PY'
           import json, sys
+          from pipeline_status import problems
           with open("status.json", encoding="utf-8") as f:
-              s = json.load(f)
-          problems = []
-          if s.get("nos_error"):
-              problems.append(f"NOS: {s['nos_error']}")
-          if s.get("flows_error"):
-              problems.append(f"FLOWS: {s['flows_error']}")
-          if s.get("flows_checks_ok") is False:
-              print("::warning::Cross-border totals do not add up; check the flows parser.")
-          if s.get("nos_days_failed"):
-              problems.append(f"NOS days failed: {s['nos_days_failed']}")
-          for k, v in s.get("datasets", {}).items():
-              if str(v).startswith("FAILED"):
-                  problems.append(f"{k}: {v}")
-          if s.get("nos_date_source") == "assumed_today":
-              print("::warning::NOS date taken from the current day; the page has no date input.")
-          if problems:
-              for p in problems:
-                  print(f"::error::{p}")
-              sys.exit(1)
-          print("All checks OK.")
+              status = json.load(f)
+          for name, item in status.get("dataset_details", {}).items():
+              if item["state"] == "STATIC_REFERENCE":
+                  print(f"::warning::{name}: historical typed-in reference, not freshly verified")
+          issues = problems(status)
+          for issue in issues:
+              print(f"::error::{issue}")
+          sys.exit(1 if issues else 0)
           PY
 
       - name: Send failure alert email
-        if: failure() && env.SMTP_SERVER != ''
+        # Re-enable only after reviewing stricter failure states and recipients.
+        if: failure() && vars.ENABLE_FAILURE_EMAIL == 'true' && env.SMTP_SERVER != ''
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: ${{ secrets.SMTP_SERVER }}
