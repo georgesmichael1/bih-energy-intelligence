@@ -1,12 +1,12 @@
 {
   "schema_version": 2,
-  "run_finished_at": "2026-11-24T10:08:42+00:00",
+  "run_finished_at": "2026-11-24T10:22:05+00:00",
   "last_verified_date": "24 Nov 2026",
   "last_verified_date_is_legacy": true,
   "verification_note": "No whole-master verification performed; use dataset_details.",
   "rows": 487,
   "nos_source": "admin-ajax",
-  "nos_fetched_at": "2026-11-24T11:04+01:00",
+  "nos_fetched_at": "2026-11-24T11:19+01:00",
   "nos_days_requested": 2,
   "nos_days_failed": [
     "2026-11-24: HTTPSConnectionPool(host='www.nosbih.ba', port=443): Read timed out.",
@@ -23,42 +23,39 @@
     "worldbank": "OK",
     "nos": "FAILED: PARTIAL: One or more NOS day requests failed",
     "dam": "FAILED: UNVERIFIED: Legacy positional price parser disabled for publication",
-    "flows": "FAILED: FAILED: ConnectionError",
-    "entsoe_load_forecast": "OK",
-    "entsoe_physical_flows": "OK",
-    "entsoe_hr_schedules": "OK"
+    "flows": "FAILED: FAILED: ConnectionError"
   },
   "dataset_details": {
     "balancing": {
       "state": "STATIC_REFERENCE",
-      "checked_at": "2026-11-24T10:04:22+00:00",
+      "checked_at": "2026-11-24T10:19:42+00:00",
       "detail": "Typed-in August 2025 values, not extracted or freshly verified",
       "last_success_at": null
     },
     "fx": {
       "state": "PARSED_UNDATED",
-      "checked_at": "2026-11-24T10:04:22+00:00",
+      "checked_at": "2026-11-24T10:19:43+00:00",
       "detail": "Source publication date not validated; do not relabel as live",
       "source": "https://cbbh.ba/CurrencyExchange/",
       "last_success_at": null
     },
     "population": {
       "state": "OK",
-      "checked_at": "2026-11-24T10:04:23+00:00",
+      "checked_at": "2026-11-24T10:19:43+00:00",
       "detail": "Page values parsed",
       "source": "https://www.worldometers.info/world-population/bosnia-and-herzegovina-population/",
       "source_as_of": null,
-      "last_success_at": "2026-11-24T10:04:23+00:00"
+      "last_success_at": "2026-11-24T10:19:43+00:00"
     },
     "bhas": {
       "state": "UNVERIFIED",
-      "checked_at": "2026-11-24T10:04:23+00:00",
+      "checked_at": "2026-11-24T10:19:43+00:00",
       "detail": "Mixed parsed and typed-in defaults; field dates not validated",
       "last_success_at": null
     },
     "worldbank": {
       "state": "OK",
-      "checked_at": "2026-11-24T10:04:24+00:00",
+      "checked_at": "2026-11-24T10:19:45+00:00",
       "detail": "Historical values, not today's observation",
       "indicators_parsed": [
         "NE.EXP.GNFS.CD",
@@ -70,11 +67,11 @@
         2020,
         2025
       ],
-      "last_success_at": "2026-11-24T10:04:24+00:00"
+      "last_success_at": "2026-11-24T10:19:45+00:00"
     },
     "nos": {
       "state": "PARTIAL",
-      "checked_at": "2026-11-24T10:05:58+00:00",
+      "checked_at": "2026-11-24T10:21:19+00:00",
       "detail": "One or more NOS day requests failed",
       "latest_actual": "2026-11-24 04:00",
       "source": "https://www.nosbih.ba/en/ees/graf-potrosnje/",
@@ -83,54 +80,15 @@
     },
     "dam": {
       "state": "UNVERIFIED",
-      "checked_at": "2026-11-24T10:05:58+00:00",
+      "checked_at": "2026-11-24T10:21:19+00:00",
       "detail": "Legacy positional price parser disabled for publication",
       "last_success_at": null
     },
     "flows": {
       "state": "FAILED",
-      "checked_at": "2026-11-24T10:06:43+00:00",
+      "checked_at": "2026-11-24T10:22:05+00:00",
       "detail": "ConnectionError",
       "last_success_at": null
-    },
-    "entsoe_load_forecast": {
-      "state": "OK",
-      "checked_at": "2026-11-24T10:06:52+00:00",
-      "detail": "Complete requested historical day; not current-day data",
-      "row_count": 24,
-      "directions": 1,
-      "unit": "MW",
-      "target_local_day": "2026-11-23",
-      "source": "https://web-api.tp.entsoe.eu/api",
-      "coverage_start_utc": "2026-11-22T23:00:00Z",
-      "coverage_end_utc": "2026-11-23T23:00:00Z",
-      "last_success_at": "2026-11-24T10:06:52+00:00"
-    },
-    "entsoe_physical_flows": {
-      "state": "OK",
-      "checked_at": "2026-11-24T10:08:21+00:00",
-      "detail": "Complete requested historical day; not current-day data",
-      "row_count": 144,
-      "directions": 6,
-      "unit": "MW",
-      "target_local_day": "2026-11-23",
-      "source": "https://web-api.tp.entsoe.eu/api",
-      "coverage_start_utc": "2026-11-22T23:00:00Z",
-      "coverage_end_utc": "2026-11-23T23:00:00Z",
-      "last_success_at": "2026-11-24T10:08:21+00:00"
-    },
-    "entsoe_hr_schedules": {
-      "state": "OK",
-      "checked_at": "2026-11-24T10:08:42+00:00",
-      "detail": "Complete requested historical day; not current-day data",
-      "row_count": 48,
-      "directions": 2,
-      "unit": "MW",
-      "target_local_day": "2026-11-23",
-      "source": "https://web-api.tp.entsoe.eu/api",
-      "coverage_start_utc": "2026-11-22T23:00:00Z",
-      "coverage_end_utc": "2026-11-23T23:00:00Z",
-      "last_success_at": "2026-11-24T10:08:42+00:00"
     }
   }
 }
