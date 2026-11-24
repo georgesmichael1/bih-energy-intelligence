@@ -119,6 +119,44 @@ def update_regional_prices(csv_path="regional_day_ahead_prices.csv", session=Non
     return results
 
 
+def mark_legacy_master(path="bih_data.csv"):
+    """Keep the saved RS number, but never advertise it as a current dual feed."""
+    path = Path(path)
+    if not path.exists():
+        return
+    with path.open(newline="", encoding="utf-8") as handle:
+        reader = csv.DictReader(handle)
+        columns, rows = reader.fieldnames, list(reader)
+    changed = False
+    for row in rows:
+        if row.get("Record_ID") != "BIH-0487":
+            continue
+        labels = {
+            "Subcategory_Group": "Table 2B: Serbia Day-Ahead Historical Reference (SEEPEX)",
+            "Entity_Project_Indicator_Name": "Serbia Day-Ahead Saved Reference (SEEPEX)",
+            "Location_Region_Entity": "Serbia (RS), not Bosnia or Hungary",
+            "Status_Stage_Tier": "HISTORICAL SAVED VALUE - LIVE UPDATE BLOCKED",
+            "Period_Year": "Historical snapshot; see original source date",
+            "Primary_Metric_Label": "Saved legacy regional price (EUR/MWh); not revalidated",
+            "Secondary_Metric_Label": "Saved legacy metrics; not revalidated",
+            "Counterparty_Owner_Offtaker": "SEEPEX / Energy-Charts (RS zone)",
+            "Technical_Commercial_Notes_Details": "Original RS-only legacy value retained, not a current verified delivery-day average. RS publication updates blocked pending suitable rights. HU intervals are separate in regional_day_ahead_prices.csv. Domestic tariffs are reference data.",
+        }
+        source = row.get("Verification_Status_Source_URL", "")
+        if source and not source.startswith("HISTORICAL SAVED LABEL"):
+            labels["Verification_Status_Source_URL"] = "HISTORICAL SAVED LABEL (not revalidated): " + source
+        for key, value in labels.items():
+            if key in row and row[key] != value:
+                row[key] = value
+                changed = True
+    if changed:
+        output = io.StringIO(newline="")
+        writer = csv.DictWriter(output, fieldnames=columns)
+        writer.writeheader()
+        writer.writerows(rows)
+        atomic_text(path, output.getvalue())
+
+
 def main():
     # Preserve the existing updater's dataset results and legacy VBA metadata.
     from pipeline_status import DATASETS, write_status
@@ -127,6 +165,7 @@ def main():
     DATASETS.clear()
     DATASETS.update(old.get("dataset_details", {}))
     update_regional_prices()
+    mark_legacy_master()
     reserved = {"schema_version", "run_finished_at", "last_verified_date",
                 "last_verified_date_is_legacy", "verification_note", "rows",
                 "datasets", "dataset_details"}
