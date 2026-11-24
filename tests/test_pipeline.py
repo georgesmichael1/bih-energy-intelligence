@@ -183,7 +183,7 @@ class PipelineTests(unittest.TestCase):
         df = u.fetch_nos_day(session, day)
 
         self.assertEqual(len(df), 2)
-        self.assertEqual(list(df["Hour"]),)
+        self.assertEqual(list(df["Hour"]), [1, 24])
         self.assertAlmostEqual(df.loc[df["Hour"] == 1, "Planned_Production_MW"].iloc[0], 1200.5)
         self.assertAlmostEqual(df.loc[df["Hour"] == 1, "Actual_Production_MW"].iloc[0], 1180.0)
         self.assertAlmostEqual(df.loc[df["Hour"] == 1, "Planned_Consumption_MW"].iloc[0], 950.0)
