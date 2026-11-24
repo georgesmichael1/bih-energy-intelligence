@@ -6,7 +6,6 @@ import time
 import datetime
 
 from pipeline_status import DATASETS, record, write_status, utc_now
-from entsoe_adapter import update_entsoe
 from urllib.parse import urljoin, urlencode
 from zoneinfo import ZoneInfo
 
@@ -1260,7 +1259,7 @@ def main():
         state = "OK" if flows_status.get("flows_checks_ok") and 0 <= age <= 7200 else "STALE_OR_INVALID"
         record("flows", state, detail="Two-hour freshness ceiling; separate from historical ENTSO-E", **flows_status)
     nos_status.update(flows_status)
-    call("entsoe", update_entsoe, None)
+    # ENTSO-E runs in its own daily workflow (entsoe_daily.yml), not here.
     try:
         sync_github_master_csv(dam_curve, fx_rates, wm_live, df_wm_pop, nos_status)
     except Exception as exc:
