@@ -16,7 +16,7 @@ concurrency:
 jobs:
   entsoe-daily:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 40
     env:
       ENTSOE_API_TOKEN: ${{ secrets.ENTSOE_API_TOKEN }}
 
