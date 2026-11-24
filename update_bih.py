@@ -6,6 +6,8 @@ import time
 import datetime
 from urllib.parse import urljoin, urlencode
 from zoneinfo import ZoneInfo
+from pipeline_status import DATASETS, record, write_status, utc_now
+from entsoe_adapter import update_entsoe
 
 import requests as std_requests
 from requests.adapters import HTTPAdapter
@@ -1191,39 +1193,57 @@ def build_bih_intelligence_workbook(
     return output_filename
 
 
+def main():
+    """Update CSVs and status. Legacy standalone XLSX generation is opt-in.
+
+    That workbook still contains static narrative/labels and is not the user's
+    macro dashboard. Do not treat it as validated output of these new feeds.
+    """
+    def call(name, func, default):
+        try:
+            return func()
+        except Exception as exc:
+            record(name, "FAILED", detail=type(exc).__name__)
+            return default
+
+    df_bal = call("balancing", fetch_nosbih_balancing_prices, pd.DataFrame())
+    fx_rates = call("fx", fetch_cbbh_fx_rates, {})
+    wm_live, df_wm_pop = call("population", fetch_worldometer_bih_population,
+                              (None, pd.DataFrame(columns=["Year"])))
+    bhas_data = call("bhas", fetch_bhas_headline_kpis, {})
+    wb_macro = call("worldbank", fetch_worldbank_bih_macro, pd.DataFrame())
+    nos_status = call("nos", update_nos_history, {"nos_error": "Fetch failed"})
+    if "nos" not in DATASETS:
+        record("nos", "FAILED" if nos_status.get("nos_days_failed") else "OK",
+               detail="See NOS request metadata", **nos_status)
+    # Existing DAM parser drops timestamps and cannot prove a delivery day.
+    # Disable publication until a timestamp-aware adapter is reviewed.
+    record("dam", "UNVERIFIED", detail="Legacy positional price parser disabled for publication")
+    dam_curve = None
+    flows_status = call("flows", update_flows_history, {"flows_error": "Fetch failed"})
+    if "flows" not in DATASETS:
+        stamp = datetime.datetime.fromisoformat(flows_status["flows_timestamp"]).replace(tzinfo=NOS_TZ)
+        age = (datetime.datetime.now(NOS_TZ).astimezone(datetime.timezone.utc)
+               - stamp.astimezone(datetime.timezone.utc)).total_seconds()
+        state = "OK" if flows_status.get("flows_checks_ok") and 0 <= age <= 7200 else "STALE_OR_INVALID"
+        record("flows", state, detail="Two-hour freshness ceiling; separate from historical ENTSO-E",
+               **flows_status)
+    nos_status.update(flows_status)
+    call("entsoe", update_entsoe, None)
+    try:
+        sync_github_master_csv(dam_curve, fx_rates, wm_live, df_wm_pop, nos_status)
+    except Exception as exc:
+        record("master", "FAILED", detail=type(exc).__name__)
+    # Status still lands if the master CSV is absent or sync failed.
+    rows = len(pd.read_csv("bih_data.csv")) if os.path.exists("bih_data.csv") else None
+    write_status("status.json", rows=rows, legacy=nos_status)
+    if os.environ.get("BUILD_LEGACY_XLSX") == "1":
+        nos_hist = load_nos_history()
+        nos_day_df, nos_day_date = nos_day_for_workbook(nos_hist, dam_curve)
+        build_bih_intelligence_workbook(nos_day_df, nos_day_date, nos_status,
+            df_bal, fx_rates, bhas_data, wb_macro, wm_live, df_wm_pop)
+    print("CSV update finished. See per-dataset status; this is not full-master verification.")
+
+
 if __name__ == "__main__":
-    print("=" * 78)
-    print("BOSNIA & HERZEGOVINA FULL MASTER PIPELINE (update_bih.py)")
-    print("=" * 78)
-
-    df_bal = fetch_nosbih_balancing_prices()
-    derk_pdfs = discover_derk_pdfs()
-    fx_rates = fetch_cbbh_fx_rates()
-    wm_live, df_wm_pop = fetch_worldometer_bih_population()
-    bhas_data = fetch_bhas_headline_kpis()
-    wb_macro = fetch_worldbank_bih_macro()
-
-    try:
-        nos_status = update_nos_history()
-        if nos_status["nos_days_failed"]:
-            print(f"[NOS] {len(nos_status['nos_days_failed'])} day(s) failed: {nos_status['nos_days_failed']}")
-    except Exception as e:
-        nos_status = {"nos_error": str(e)}
-        print(f"[NOS] FAILED: {e}")
-
-    dam_curve = fetch_seepex_hupx_dam_curve()
-    nos_hist = load_nos_history()
-    nos_day_df, nos_day_date = nos_day_for_workbook(nos_hist, dam_curve)
-
-    try:
-        flows_status = update_flows_history()
-    except Exception as e:
-        flows_status = {"flows_error": str(e)}
-        print(f"[FLOWS] FAILED: {e}")
-    nos_status = {**nos_status, **flows_status}
-    sync_github_master_csv(dam_curve, fx_rates, wm_live, df_wm_pop, nos_status)
-    out_xlsx = build_bih_intelligence_workbook(
-        nos_day_df, nos_day_date, nos_status,
-        df_bal, fx_rates, bhas_data, wb_macro, wm_live, df_wm_pop,
-    )
-    print(f"[DONE] Saved {out_xlsx}, synced bih_data.csv + status.json, updated {NOS_HOURLY_CSV}")
+    main()
