@@ -44,7 +44,7 @@ jobs:
           import sys
           from entsoe_adapter import update_entsoe
           from pipeline_status import DATASETS
-          update_entsoe(include_physical=False)
+          update_entsoe(include_physical=False, include_capacity=True)
           names = [k for k in DATASETS if k.startswith("entsoe_")]
           if not names:
               print("::error::No ENTSO-E dataset state was recorded")
@@ -62,7 +62,7 @@ jobs:
         run: |
           git config user.name "BiH Energy Auto-Updater"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          for f in entsoe_load_forecast.csv entsoe_hr_schedules.csv; do
+          for f in entsoe_load_forecast.csv entsoe_hr_schedules.csv entsoe_ntc_day_ahead.csv entsoe_nominated_daily.csv; do
             [ -f "$f" ] && git add "$f"
           done
           if git diff --staged --quiet; then
