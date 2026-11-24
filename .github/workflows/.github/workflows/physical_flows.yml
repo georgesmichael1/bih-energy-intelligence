@@ -1,0 +1,43 @@
+name: BiH Physical Flows 31 Delivery Days
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: bih-daily-update
+  cancel-in-progress: false
+jobs:
+  physical-flows:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      ENTSOE_API_TOKEN: ${{ secrets.ENTSOE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install -r requirements.txt
+      - name: Offline tests
+        run: python -m unittest discover -s tests -v
+      - name: Fetch today and previous30delivery days
+        id: fetch
+        continue-on-error: true
+        run: python physical_flow_history.py
+      - name: Save valid intervals and coverage even if incomplete
+        run: |
+          git config user.name "BiH Energy Auto-Updater"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add entsoe_physical_flows.csv physical_flows_status.json
+          if ! git diff --staged --quiet; then
+            git commit -m "chore(flows): refresh31delivery days"
+            git pull --rebase --autostash origin main
+            git push origin HEAD:main
+          fi
+      - name: Coverage quality gate
+        if: steps.fetch.outcome != 'success'
+        run: |
+          echo "::error::Physical flow coverage incomplete. See physical_flows_status.json; valid intervals retained."
+          exit 1
