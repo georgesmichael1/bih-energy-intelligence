@@ -347,11 +347,18 @@ def _latest_fetched_at(df: pd.DataFrame) -> str | None:
     return str(valid.max()) if len(valid) else None
 
 
+def create_nos_session():
+    # Verified live on both NOS endpoints: Chrome transport works where the
+    # ordinary requests connection times out. This affects NOS only.
+    # Outer _nos_request owns retries, so requests must not retry internally.
+    use_cffi = HAS_CFFI and os.environ.get("NOS_USE_CFFI", "1") != "0"
+    return create_resilient_session(retries=0, backoff_factor=1.0, use_cffi=use_cffi)
+
+
 def update_nos_history() -> dict:
     # Fetch the 30-day window: all days missing from history, plus today and yesterday (actuals keep arriving).
     hist = load_nos_history()
-    prefer_cffi = os.environ.get("NOS_USE_CFFI") == "1"
-    session = create_resilient_session(retries=1, backoff_factor=1.0, use_cffi=prefer_cffi)
+    session = create_nos_session()
     attempt_stamp = datetime.datetime.now(NOS_TZ).isoformat(timespec="minutes")
     today = _sarajevo_today()
     window = [today - datetime.timedelta(days=i) for i in range(HISTORY_DAYS)]
@@ -577,8 +584,7 @@ def update_flows_history() -> dict:
     prior_fetched_at = _latest_fetched_at(hist)
     prior_timestamp = str(hist["Timestamp"].iloc[-1]) if len(hist) else None
     attempt_stamp = datetime.datetime.now(NOS_TZ).isoformat(timespec="minutes")
-    prefer_cffi = os.environ.get("NOS_USE_CFFI") == "1"
-    session = create_resilient_session(retries=1, backoff_factor=1.0, use_cffi=prefer_cffi)
+    session = create_nos_session()
     try:
         resp = _nos_request(
             session,
