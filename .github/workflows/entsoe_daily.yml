@@ -55,6 +55,21 @@ jobs:
           sys.exit(1 if bad else 0)
           PY
 
+      - name: Fetch actual load and generation per type
+        if: success() || failure()
+        run: |
+          python3 - <<'PY'
+          import sys
+          from entsoe_actuals import update_actuals
+          from pipeline_status import DATASETS
+          update_actuals()
+          names = ["entsoe_actual_load", "entsoe_actual_generation"]
+          bad = {k: DATASETS.get(k, {"state": "MISSING", "detail": ""}) for k in names if DATASETS.get(k, {}).get("state") != "OK"}
+          for k, v in bad.items():
+              print(f"::error::{k}: {v['state']} {v['detail']}")
+          sys.exit(1 if bad else 0)
+          PY
+
       # Only load and HR schedule CSVs (physical flows have their own rolling writer) are committed here. status.json is owned by the 30-minute job.
       # Also runs after a partial failure so valid recovered days are saved; the run still ends red.
       - name: Commit and push ENTSO-E CSVs
@@ -62,7 +77,7 @@ jobs:
         run: |
           git config user.name "BiH Energy Auto-Updater"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          for f in entsoe_load_forecast.csv entsoe_hr_schedules.csv entsoe_ntc_day_ahead.csv entsoe_nominated_daily.csv; do
+          for f in entsoe_load_forecast.csv entsoe_hr_schedules.csv entsoe_ntc_day_ahead.csv entsoe_nominated_daily.csv entsoe_actual_load.csv entsoe_actual_generation.csv; do
             [ -f "$f" ] && git add "$f"
           done
           if git diff --staged --quiet; then
