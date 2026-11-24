@@ -82,7 +82,7 @@ def parse_document(body, dataset, source, target, start, end, fetched_at):
                         ': ' + _safe_text(' '.join(reasons)))
     expected_type = {'load_forecast': 'A65', 'physical_flows': 'A11',
                      'hr_schedules': 'A09', 'ntc_day_ahead': 'A61',
-                     'nominated_daily': 'A26'}[dataset]
+                     'nominated_daily': 'A26', 'scheduled_rs_me': 'A09'}[dataset]
     if text(root, '{*}type') != expected_type:
         raise DataError('Unexpected document type')
     if dataset == 'load_forecast' and text(root, '{*}process.processType') != 'A01':
@@ -111,7 +111,7 @@ def parse_document(body, dataset, source, target, start, end, fetched_at):
         if (text(ts, '{*}out_Domain.mRID') != AREAS[source] or
                 text(ts, '{*}in_Domain.mRID') != AREAS[target]):
             raise DataError('Direction mismatch')
-        if dataset == 'hr_schedules' and \
+        if dataset in ('hr_schedules', 'scheduled_rs_me') and \
                 text(ts, '{*}contract_MarketAgreement.type') != 'A01':
             raise DataError('Not a day-ahead/daily contract series')
         # NTC and nominated responses may omit the contract element; when it is
@@ -279,11 +279,13 @@ def update_entsoe(output_dir='.', day=None, session=None, token=None, include_ph
                           for a, b in [('BA', other), (other, 'BA')]],
         'nominated_daily': [(a, b) for other in ('HR', 'RS', 'ME')
                             for a, b in [('BA', other), (other, 'BA')]],
+        'scheduled_rs_me': [(a, b) for other in ('RS', 'ME')
+                            for a, b in [('BA', other), (other, 'BA')]],
     }
     if not include_physical:
         groups.pop('physical_flows')
     if not include_capacity:
-        groups.pop('ntc_day_ahead'); groups.pop('nominated_daily')
+        groups.pop('ntc_day_ahead'); groups.pop('nominated_daily'); groups.pop('scheduled_rs_me')
     token = token if token is not None else os.environ.get('ENTSOE_API_TOKEN', '').strip()
     owns_session = session is None
     session = session or make_session()
@@ -294,7 +296,7 @@ def update_entsoe(output_dir='.', day=None, session=None, token=None, include_ph
         for source, target in directions:
             parameters = {
                 'documentType': {'load_forecast': 'A65', 'physical_flows': 'A11', 'hr_schedules': 'A09',
-                                 'ntc_day_ahead': 'A61', 'nominated_daily': 'A26'}[dataset],
+                                 'ntc_day_ahead': 'A61', 'nominated_daily': 'A26', 'scheduled_rs_me': 'A09'}[dataset],
                 'periodStart': d_start.strftime('%Y%m%d%H%M'),
                 'periodEnd': d_end.strftime('%Y%m%d%H%M'),
             }
@@ -302,7 +304,7 @@ def update_entsoe(output_dir='.', day=None, session=None, token=None, include_ph
                 parameters.update({'processType': 'A01', 'outBiddingZone_Domain': AREAS['BA']})
             else:
                 parameters.update({'in_Domain': AREAS[target], 'out_Domain': AREAS[source]})
-                if dataset in ('hr_schedules', 'ntc_day_ahead', 'nominated_daily'):
+                if dataset in ('hr_schedules', 'scheduled_rs_me', 'ntc_day_ahead', 'nominated_daily'):
                     parameters['contract_MarketAgreement.type'] = 'A01'
                 if dataset == 'nominated_daily':
                     parameters['businessType'] = 'B08'
