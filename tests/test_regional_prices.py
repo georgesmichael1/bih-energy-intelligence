@@ -65,7 +65,7 @@ class RegionalPriceTests(unittest.TestCase):
             self.assertTrue(target.exists())
             self.assertEqual(DATASETS['price_hu']['state'], 'OK')
             self.assertEqual(DATASETS['price_rs']['state'], 'BLOCKED_RIGHTS')
-            self.assertEqual(DATASETS['price_me']['state'], 'BLOCKED_RIGHTS')
+            self.assertNotIn('price_me', DATASETS)
             self.assertEqual(DATASETS['dam']['state'], 'PARTIAL')
         self.assertEqual(session.get.call_count, 2)
         for args, kwargs in session.get.call_args_list:
