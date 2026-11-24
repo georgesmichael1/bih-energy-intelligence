@@ -7,6 +7,7 @@ import csv
 import datetime as dt
 import io
 import math
+import os
 import json
 import time
 import xml.etree.ElementTree as ET
@@ -75,52 +76,63 @@ def update_regional_prices(csv_path="regional_day_ahead_prices.csv", session=Non
     source = "https://web-api.tp.entsoe.eu/api"
     areas = {"RS": "10YCS-SERBIATSOV", "HU": "10YHU-MAVIR----U"}
     try:
+        full = os.environ.get("FULL_WINDOW", "0") == "1"
         for market, (country, timezone) in MARKETS.items():
-            day = now.astimezone(ZoneInfo(timezone)).date()
-            try:
-                if not token:
-                    raise ValueError("Missing server-side token")
-                start = dt.datetime.combine(day, dt.time(), ZoneInfo(timezone)).astimezone(dt.timezone.utc)
-                end = dt.datetime.combine(day + dt.timedelta(days=1), dt.time(), ZoneInfo(timezone)).astimezone(dt.timezone.utc)
-                params = {"securityToken": token, "documentType": "A44",
-                    "contract_MarketAgreement.type": "A01", "in_Domain": areas[market], "out_Domain": areas[market],
-                    "periodStart": start.strftime("%Y%m%d%H%M"), "periodEnd": end.strftime("%Y%m%d%H%M")}
-                for attempt in range(3):
-                    try:
-                        response = session.get(source, params=params, timeout=(10, 60), verify=True)
-                        if response.status_code in (401, 403, 429):
-                            raise ValueError("HTTP_" + str(response.status_code))
-                        if response.status_code != 200:
-                            if response.status_code >= 500 and attempt < 2:
-                                time.sleep(5 * (attempt+1))
-                                continue
-                            raise ValueError("HTTP_" + str(response.status_code))
+            today = now.astimezone(ZoneInfo(timezone)).date()
+            days = [today - dt.timedelta(days=n) for n in range(30, -1, -1)] if full else [today]
+            market_rows, failed_days = [], []
+            for day in days:
+                try:
+                    if not token:
+                        raise ValueError("Missing server-side token")
+                    start = dt.datetime.combine(day, dt.time(), ZoneInfo(timezone)).astimezone(dt.timezone.utc)
+                    end = dt.datetime.combine(day + dt.timedelta(days=1), dt.time(), ZoneInfo(timezone)).astimezone(dt.timezone.utc)
+                    params = {"securityToken": token, "documentType": "A44",
+                        "contract_MarketAgreement.type": "A01", "in_Domain": areas[market], "out_Domain": areas[market],
+                        "periodStart": start.strftime("%Y%m%d%H%M"), "periodEnd": end.strftime("%Y%m%d%H%M")}
+                    for attempt in range(3):
+                        try:
+                            response = session.get(source, params=params, timeout=(10, 60), verify=True)
+                            if response.status_code in (401, 403, 429):
+                                raise ValueError("HTTP_" + str(response.status_code))
+                            if response.status_code != 200:
+                                if response.status_code >= 500 and attempt < 2:
+                                    time.sleep(5 * (attempt+1))
+                                    continue
+                                raise ValueError("HTTP_" + str(response.status_code))
+                            break
+                        except (requests.Timeout, requests.ConnectionError):
+                            if attempt == 2:
+                                raise
+                            time.sleep(5 * (attempt+1))
+                    parsed = parse_prices(response.content, areas[market])
+                    if parsed[0]["start"] != start or parsed[-1]["end"] != end:
+                        raise ValueError("Wrong delivery-day boundaries")
+                    if any(a["end"] != b["start"] for a,b in zip(parsed, parsed[1:])):
+                        raise ValueError("Delivery-day interval gap or overlap")
+                    market_rows += [{"Market": market, "Country": country, "Product": "DAY_AHEAD",
+                             "Delivery_Date": day.isoformat(), "Interval_Start_UTC": row["start"].isoformat(),
+                             "Interval_End_UTC": row["end"].isoformat(), "Price_EUR_MWh": row["price"],
+                             "Source": source, "Attribution": "ENTSO-E Transparency Platform; primary owner: " + ("SEEPEX" if market == "RS" else "HUPX"),
+                             "License": "ENTSO-E Terms of Use; primary-owner rights apply, not a blanket CC-BY grant",
+                             "Fetched_At": stamp} for row in parsed]
+                    if full and day != days[-1]:
+                        time.sleep(1)
+                except (requests.RequestException, ValueError, TypeError, KeyError, AttributeError, ET.ParseError) as exc:
+                    failed_days.append(day.isoformat() + " " + type(exc).__name__ + (" " + str(exc) if isinstance(exc, ValueError) and str(exc).startswith("HTTP_") else ""))
+                    if str(exc) in ("HTTP_401", "HTTP_403", "HTTP_429") or str(exc) == "Missing server-side token":
                         break
-                    except (requests.Timeout, requests.ConnectionError):
-                        if attempt == 2:
-                            raise
-                        time.sleep(5 * (attempt+1))
-                parsed = parse_prices(response.content, areas[market])
-                if parsed[0]["start"] != start or parsed[-1]["end"] != end:
-                    raise ValueError("Wrong delivery-day boundaries")
-                if any(a["end"] != b["start"] for a,b in zip(parsed, parsed[1:])):
-                    raise ValueError("Delivery-day interval gap or overlap")
-                rows = [{"Market": market, "Country": country, "Product": "DAY_AHEAD",
-                         "Delivery_Date": day.isoformat(), "Interval_Start_UTC": row["start"].isoformat(),
-                         "Interval_End_UTC": row["end"].isoformat(), "Price_EUR_MWh": row["price"],
-                         "Source": source, "Attribution": "ENTSO-E Transparency Platform; primary owner: " + ("SEEPEX" if market == "RS" else "HUPX"),
-                         "License": "ENTSO-E Terms of Use; primary-owner rights apply, not a blanket CC-BY grant",
-                         "Fetched_At": stamp} for row in parsed]
-                results.extend(rows)
+            results.extend(market_rows)
+            if not failed_days:
                 good.append(market)
                 record("price_" + market.lower(), "OK", market=market, product="DAY_AHEAD", source=source,
-                       delivery_days=[day.isoformat()], intervals=len(rows), fetched_at=stamp,
-                       detail="Today's complete auction curve fetched at run time; not instant intraday",
+                       delivery_days=[d.isoformat() for d in days], intervals=len(market_rows), fetched_at=stamp,
+                       detail=("Full 31-day window refetched at run time" if full else "Today's complete auction curve fetched at run time") + "; not instant intraday",
                        resolution_note="ENTSO-E interval grid; RS hourly auction may repeat across quarter-hours",
                        last_successful_fetch_at=stamp)
-            except (requests.RequestException, ValueError, TypeError, KeyError, AttributeError, ET.ParseError) as exc:
+            else:
                 record("price_" + market.lower(), "FAILED", market=market, source=source,
-                       detail="Today auction retrieval/validation failed: " + type(exc).__name__ + (" " + str(exc) if isinstance(exc, ValueError) and str(exc).startswith("HTTP_") else "") + "; cached rows not confirmed current")
+                       detail="Auction retrieval/validation failed for " + str(len(failed_days)) + " day(s): " + "; ".join(failed_days[:5]) + "; days not fetched are not confirmed current")
     finally:
         if own_session:
             session.close()
@@ -130,7 +142,7 @@ def update_regional_prices(csv_path="regional_day_ahead_prices.csv", session=Non
             with open(csv_path, newline="", encoding="utf-8") as handle:
                 prior = list(csv.DictReader(handle))
         replaced = {(r["Market"], r["Delivery_Date"]) for r in results}
-        cutoff = (now.date()-dt.timedelta(days=29)).isoformat()
+        cutoff = (now.date()-dt.timedelta(days=30)).isoformat()
         retained = [r for r in prior if r.get("Market") in MARKETS and r.get("Delivery_Date", "") >= cutoff
                     and (r.get("Market"),r.get("Delivery_Date")) not in replaced]
         output = io.StringIO(newline="")
@@ -140,7 +152,7 @@ def update_regional_prices(csv_path="regional_day_ahead_prices.csv", session=Non
         atomic_text(csv_path, output.getvalue())
     record("dam", "OK" if len(good)==len(MARKETS) else "PARTIAL", markets=list(MARKETS),
            product="DAY_AHEAD", csv=str(csv_path), not_bosnia_tariff=True,
-           detail="Today's RS/HU auction curves validated" if len(good)==len(MARKETS) else "Required current-day market missing")
+           detail=("Full 31-day RS/HU auction window validated" if os.environ.get("FULL_WINDOW","0")=="1" else "Today's RS/HU auction curves validated") if len(good)==len(MARKETS) else "Required market window missing")
     return results
 
 
