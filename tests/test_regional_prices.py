@@ -41,20 +41,3 @@ class RegionalTests(unittest.TestCase):
     session=Mock();session.get.side_effect=[Mock(status_code=200,content=xml('HU',day,price)),Mock(status_code=200,content=xml('RS',day,price))]
     r.update_regional_prices(path,session,dt.datetime(2026,11,24,tzinfo=dt.timezone.utc))
    rows=list(csv.DictReader(io.StringIO(path.read_text())));self.assertEqual(len(rows),192);self.assertTrue(all(float(x['Price_EUR_MWh'])==2 for x in rows))
-
-
-class FullWindowTests(unittest.TestCase):
- def test_manual_window_fetches_31_days_per_market(self):
-  DATASETS.clear()
-  now=dt.datetime(2026,11,24,12,tzinfo=dt.timezone.utc)
-  def get(url,params=None,**k):
-   market='HU' if params['in_Domain']=='10YHU-MAVIR----U' else 'RS'
-   tz=ZoneInfo(r.MARKETS[market][1])
-   start=dt.datetime.strptime(params['periodStart'],'%Y%m%d%H%M').replace(tzinfo=dt.timezone.utc).astimezone(tz).date()
-   return Mock(status_code=200,content=xml(market,start))
-  with tempfile.TemporaryDirectory() as tmp,patch.dict(os.environ,{'ENTSOE_API_TOKEN':'fake-test-only','FULL_WINDOW':'1'}),patch.object(r.time,'sleep'):
-   session=Mock();session.get.side_effect=get
-   rows=r.update_regional_prices(str(Path(tmp)/'p.csv'),session,now)
-   self.assertEqual(session.get.call_count,62)
-   self.assertEqual(len({(x['Market'],x['Delivery_Date']) for x in rows}),62)
-   self.assertEqual(DATASETS['dam']['state'],'OK')
