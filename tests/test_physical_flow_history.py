@@ -68,3 +68,40 @@ class RangeFetchTests(unittest.TestCase):
             result=h.update(tmp,now=now,token='dummy',session=object())
             self.assertEqual(len(requests),6)
             self.assertEqual(requests[0]['periodStart'],'202611222300')
+
+
+class IntegrityTests(unittest.TestCase):
+    @patch.object(h.time,'sleep')
+    def test_complete_day_replaces_stale_but_partial_and_failed_keep_saved(self,_):
+        now=dt.datetime(2026,11,24,12,tzinfo=dt.timezone.utc)
+        mode={'kind':'full'}
+        def fetch(session,token,p):
+            a=next(k for k,v in e.AREAS.items() if v==p['out_Domain']);b=next(k for k,v in e.AREAS.items() if v==p['in_Domain'])
+            if mode['kind']=='fail':raise e.APIError('down')
+            start=dt.datetime.strptime(p['periodStart'],'%Y%m%d%H%M').replace(tzinfo=dt.timezone.utc)
+            value=10 if mode['kind']=='full' else 77
+            end=now if mode['kind']=='full' else start+dt.timedelta(hours=30)
+            return document('physical_flows',a,b,start=start,end=end,positions=[(1,value),(int((end-start).total_seconds()/3600),value)])
+        with tempfile.TemporaryDirectory() as tmp,patch.object(e,'fetch',side_effect=fetch):
+            h.update(tmp,now=now,token='dummy',session=object())
+            path=Path(tmp)/'entsoe_physical_flows.csv'; before=path.read_text()
+            mode['kind']='fail'
+            out=h.update(tmp,now=now,token='dummy',session=object())
+            self.assertEqual(out['state'],'PARTIAL');self.assertEqual(len(out['request_failures']),6)
+            self.assertEqual(path.read_text(),before)  # good saved rows survive failed fetch, not relabelled OK
+            mode['kind']='partial'
+            h.update(tmp,now=now,token='dummy',session=object())
+            import csv
+            rows=list(csv.DictReader(path.open()))
+            first=[r for r in rows if r['From_Area']=='BA' and r['To_Area']=='HR' and r['Interval_Start_Local'][:10]=='2026-11-23']
+            last=[r for r in rows if r['From_Area']=='BA' and r['To_Area']=='HR' and r['Interval_Start_Local'][:10]=='2026-11-20']
+            self.assertTrue(first and all(float(r['Value_MW'])==77 for r in first))   # refetched complete day replaced
+            self.assertTrue(last and all(float(r['Value_MW'])==10 for r in last))     # older saved day kept, not re-requested or deleted
+            keys=[(r['From_Area'],r['To_Area'],r['Interval_Start_UTC']) for r in rows];self.assertEqual(len(keys),len(set(keys)))
+
+class NoZeroTests(unittest.TestCase):
+    def test_missing_days_are_gaps_not_zero(self):
+        with tempfile.TemporaryDirectory() as d,patch.object(h.time,'sleep'):
+            out=h.update(d,now=dt.datetime(2026,11,24,12,tzinfo=dt.timezone.utc),token='',session=object())
+            self.assertEqual(out['state'],'PARTIAL')
+            self.assertFalse((Path(d)/'entsoe_physical_flows.csv').read_text().count('\n')>1)
