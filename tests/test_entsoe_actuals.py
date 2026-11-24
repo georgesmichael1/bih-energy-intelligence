@@ -30,9 +30,33 @@ class T(unittest.TestCase):
         for day, n in [(dt.date(2026, 11, 23), 24), (dt.date(2026, 3, 29), 23), (dt.date(2026, 10, 25), 25)]:
             s, e = day_bounds(day)
             self.assertEqual(len(a.parse_load(doc('load', s, e, n), s, e, 'x')), n)
+    def test_a03_holds_value_to_next_position_and_period_end(self):
+        # Sparse A03 curve: value at position 1 holds to 9, value at 10 holds to the Period end (no zero fill, no missing tail).
+        for day, n in [(dt.date(2026, 11, 23), 24), (dt.date(2026, 3, 29), 23), (dt.date(2026, 10, 25), 25)]:
+            s, e = day_bounds(day)
+            body = doc('load', s, e, n).replace(b'A01', b'A03')
+            body = body.split(b'<Point>')[0] + b'<Point><position>1</position><quantity>50.0</quantity></Point><Point><position>10</position><quantity>80.0</quantity></Point></Period></TimeSeries></M>'
+            rows = a.parse_load(body, s, e, 'x')
+            self.assertEqual(len(rows), n)
+            self.assertEqual([r['Value_MW'] for r in rows], [50.0] * 9 + [80.0] * (n - 9))
+            self.assertEqual(rows[-1]['Interval_End_UTC'], e.strftime('%Y-%m-%dT%H:%M:%SZ'))
+            self.assertTrue(all(a_['Interval_End_UTC'] == b_['Interval_Start_UTC'] for a_, b_ in zip(rows, rows[1:])))
+    def test_a03_without_first_position_rejected(self):
+        s, e = day_bounds(DAY)
+        body = doc('load', s, e, 24).replace(b'A01', b'A03')
+        body = body.split(b'<Point>')[0] + b'<Point><position>3</position><quantity>50.0</quantity></Point></Period></TimeSeries></M>'
+        with self.assertRaises(a.DataError): a.parse_load(body, s, e, 'x')
+    def test_generation_negative_allowed_load_negative_rejected(self):
+        s, e = day_bounds(DAY)
+        g = doc('gen', s, e, 24, series=[('B10', 'g')]).replace(b'<quantity>101.0', b'<quantity>-5.0')
+        self.assertTrue(any(r['Value_MW'] == -5.0 for r in a.parse_generation(g, s, e, 'x')))
+        l = doc('load', s, e, 24).replace(b'<quantity>101.0', b'<quantity>-5.0')
+        with self.assertRaises(a.DataError): a.parse_load(l, s, e, 'x')
     def test_load_gap_rejected_not_zero(self):
         s, e = day_bounds(DAY)
-        with self.assertRaises(a.DataError): a.parse_load(doc('load', s, e, 24, skip=(5,)), s, e, 'x')
+        rows = a.parse_load(doc('load', s, e, 24, skip=(5,)), s, e, 'x')
+        self.assertEqual(len(rows), 23)  # kept as published, gap not filled
+        self.assertFalse(a._load_complete(rows, DAY))  # and still marked incomplete for retry
     def test_generation_keeps_published_points_only(self):
         s, e = day_bounds(DAY)
         rows = a.parse_generation(doc('gen', s, e, 24, skip=(3, 4), series=[('B02', 'g'), ('B10', 'c')]), s, e, 'x')
