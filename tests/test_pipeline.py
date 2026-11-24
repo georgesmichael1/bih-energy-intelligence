@@ -268,6 +268,7 @@ class PipelineTests(unittest.TestCase):
                 "Actual_Consumption_MW": 780.0,
                 "Fetched_At": old_stamp,
             })
+        cached_rows = [{**r, "Hour": h} for r in cached_rows for h in range(1, 25)]  # complete 24-hour days
         cached_df = pd.DataFrame(cached_rows)
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -333,6 +334,8 @@ class PipelineTests(unittest.TestCase):
                 "Actual_Consumption_MW": 790.0,
                 "Fetched_At": old_stamp,
             })
+
+        cached_rows = [{**r, "Hour": h} for r in cached_rows for h in range(1, 25)]  # complete 24-hour days
 
         def fake_fetch(session, day):
             if day == today:
@@ -422,3 +425,66 @@ class PipelineTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def _day_frame(day, hours=24, value=1.0):
+    return pd.DataFrame([{"Date": day, "Hour": h, "Planned_Production_MW": value, "Actual_Production_MW": value,
+                          "Planned_Consumption_MW": value, "Actual_Consumption_MW": value} for h in range(1, hours + 1)])
+
+
+class NosWindowIntegrityTests(unittest.TestCase):
+    def run_update(self, tmp, today, fetch):
+        old = os.getcwd(); os.chdir(tmp)
+        try:
+            with patch.object(u, "_sarajevo_today", return_value=today), \
+                 patch.object(u, "fetch_nos_day", side_effect=fetch), patch("time.sleep"):
+                return u.update_nos_history(), u.load_nos_history()
+        finally:
+            os.chdir(old)
+
+    def test_window_is_31_days_rolls_and_prunes(self):
+        today = datetime.date(2026, 11, 24)
+        with tempfile.TemporaryDirectory() as tmp:
+            res, saved = self.run_update(tmp, today, lambda s, d: _day_frame(d))
+            self.assertEqual(res["nos_days_requested"], 31)
+            self.assertEqual(saved["Date"].nunique(), 31)
+            self.assertEqual(min(saved["Date"]), today - datetime.timedelta(days=30))
+            ps.DATASETS.clear()
+            calls = []
+            res, saved = self.run_update(tmp, today + datetime.timedelta(days=1), lambda s, d: calls.append(d) or _day_frame(d))
+            self.assertEqual(sorted(calls), [today, today + datetime.timedelta(days=1)])  # incremental: yesterday + today
+            self.assertEqual(saved["Date"].nunique(), 31)
+            self.assertEqual(min(saved["Date"]), today - datetime.timedelta(days=29))
+            self.assertFalse(saved.duplicated(["Date", "Hour"]).any())
+
+    def test_incomplete_older_day_is_recovered_and_complete_replaces(self):
+        today = datetime.date(2026, 11, 24); gap = today - datetime.timedelta(days=9)
+        with tempfile.TemporaryDirectory() as tmp:
+            self.run_update(tmp, today, lambda s, d: _day_frame(d, value=5.0))
+            old = os.getcwd(); os.chdir(tmp)
+            try:
+                df = u.load_nos_history(); df = df[~((df["Date"] == gap) & (df["Hour"] > 6))]; df.to_csv(u.NOS_HOURLY_CSV, index=False)
+            finally:
+                os.chdir(old)
+            calls = []
+            res, saved = self.run_update(tmp, today, lambda s, d: calls.append(d) or _day_frame(d, value=7.0))
+            self.assertIn(gap, calls); self.assertEqual(len(calls), 3)
+            self.assertEqual(int((saved["Date"] == gap).sum()), 24)
+            self.assertTrue((saved[saved["Date"] == gap]["Actual_Production_MW"] == 7.0).all())
+
+    def test_thinner_source_answer_keeps_saved_values_and_is_flagged(self):
+        today = datetime.date(2026, 11, 24)
+        with tempfile.TemporaryDirectory() as tmp:
+            self.run_update(tmp, today, lambda s, d: _day_frame(d, value=5.0))
+            def thin(s, d):
+                f = _day_frame(d, value=9.0); f["Actual_Production_MW"] = float("nan"); f["Actual_Consumption_MW"] = float("nan"); return f
+            res, saved = self.run_update(tmp, today, thin)
+            self.assertEqual(ps.DATASETS["nos"]["state"], "PARTIAL")
+            self.assertEqual(len(res["nos_days_failed"]), 0)
+            self.assertEqual(len(ps.DATASETS["nos"]["retained_over_thinner_source_days"]), 2)
+            self.assertTrue((saved[saved["Date"] == today]["Actual_Production_MW"] == 5.0).all())  # not blanked, never zero
+
+    def test_dst_23_hour_day_counts_complete(self):
+        d = datetime.date(2026, 3, 29)
+        self.assertTrue(u.day_is_complete(_day_frame(d, hours=23), d))
+        self.assertFalse(u.day_is_complete(_day_frame(d, hours=22), d))
