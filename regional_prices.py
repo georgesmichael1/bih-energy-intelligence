@@ -21,6 +21,9 @@ MARKETS = {
     "RS": ("Serbia", "Europe/Belgrade"),
 }
 HU_SOURCE = "https://api.energy-charts.info/price?bzn=HU"
+HUPX_SOURCE = "https://labs.hupx.hu/data/v1/dam_aggregated_trading_data_15min"
+HUPX_ATTRIBUTION = "HUPX Hungarian Power Exchange - Labs DAM aggregated trading data, 15-minute MTU"
+HUPX_LICENSE_URL = "https://labs.hupx.hu/about_us/terms_of_use"
 ATTRIBUTION = "Bundesnetzagentur | SMARD.de, via Fraunhofer ISE Energy-Charts"
 LICENSE_URL = "https://creativecommons.org/licenses/by/4.0/"
 COLUMNS = ["Market", "Country", "Product", "Delivery_Date", "Interval_Start_UTC",
@@ -99,6 +102,67 @@ def _fetch_market_day(session, token, market, day, stamp, areas, source):
              "Fetched_At": stamp} for row in parsed]
 
 
+def parse_hupx_day(rows, delivery_day):
+    """Strictly validated HU local delivery day from HUPX Labs (quarter-hour MTU):
+    complete 1..N quarter-hour sequence (92/96/100 for 23/24/25-hour days),
+    Region HU only, every row Status final, every price finite."""
+    timezone = MARKETS["HU"][1]
+    tz = ZoneInfo(timezone)
+    start = dt.datetime.combine(delivery_day, dt.time(), tz).astimezone(dt.timezone.utc)
+    end = dt.datetime.combine(delivery_day + dt.timedelta(days=1), dt.time(), tz).astimezone(dt.timezone.utc)
+    expected = int((end - start).total_seconds() // 900)
+    if len(rows) != expected:
+        raise ValueError("HUPX day holds " + str(len(rows)) + " rows, expected " + str(expected))
+    for row in rows:
+        if row.get("Region") != "HU":
+            raise ValueError("Unexpected region in HUPX rows")
+        if str(row.get("Status", "")).lower() != "final":
+            raise ValueError("HUPX day holds non-final rows")
+    try:
+        order = [int(row["ProductQH"]) for row in rows]
+    except (KeyError, TypeError, ValueError):
+        raise ValueError("HUPX quarter-hour labels unreadable") from None
+    if sorted(order) != list(range(1, expected + 1)):
+        raise ValueError("HUPX quarter-hours are not a complete 1..N sequence")
+    by_qh = {int(row["ProductQH"]): row for row in rows}
+    out = []
+    for qh in range(1, expected + 1):
+        value = by_qh[qh].get("Price")
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+            raise ValueError("Missing or invalid HUPX price")
+        t0 = start + dt.timedelta(seconds=900 * (qh - 1))
+        out.append({"Market": "HU", "Country": MARKETS["HU"][0], "Product": "DAY_AHEAD",
+                    "Delivery_Date": delivery_day.isoformat(),
+                    "Interval_Start_UTC": t0.isoformat(),
+                    "Interval_End_UTC": (t0 + dt.timedelta(seconds=900)).isoformat(),
+                    "Price_EUR_MWh": float(value), "Source": HUPX_SOURCE,
+                    "Attribution": HUPX_ATTRIBUTION, "License": HUPX_LICENSE_URL})
+    return out
+
+
+def fetch_hupx_day(session, delivery_day):
+    """One delivery day of HU prices from HUPX Labs; raises on any invalid day."""
+    params = {"filter": "DeliveryDay__gte__" + delivery_day.isoformat()
+                        + ",DeliveryDay__lte__" + delivery_day.isoformat() + ",Region__in__HU"}
+    response = session.get(HUPX_SOURCE, params=params, timeout=(10, 60))
+    if response.status_code != 200:
+        raise ValueError("HTTP_" + str(response.status_code))
+    rows = response.json().get("data")
+    if not isinstance(rows, list):
+        raise ValueError("HUPX response has no data array")
+    return parse_hupx_day(rows, delivery_day)
+
+
+def _fetch_day_with_fallback(session, token, market, day, stamp, areas, source):
+    """ENTSO-E A44 first; HU days fall back to the primary owner's own publication."""
+    try:
+        return _fetch_market_day(session, token, market, day, stamp, areas, source)
+    except (requests.RequestException, ValueError, TypeError, KeyError, AttributeError, ET.ParseError):
+        if market != "HU":
+            raise
+        return fetch_hupx_day(session, day)
+
+
 def _saved_complete_days(prior, market, days):
     """Days whose saved rows span the whole local delivery day without gaps."""
     timezone = MARKETS[market][1]
@@ -143,7 +207,7 @@ def update_regional_prices(csv_path="regional_day_ahead_prices.csv", session=Non
         for market, (country, timezone) in MARKETS.items():
             day = now.astimezone(ZoneInfo(timezone)).date()
             try:
-                rows = _fetch_market_day(session, token, market, day, stamp, areas, source)
+                rows = _fetch_day_with_fallback(session, token, market, day, stamp, areas, source)
                 results.extend(rows)
                 good.append(market)
                 older = [day - dt.timedelta(days=n) for n in range(1, 31)]
@@ -152,7 +216,7 @@ def update_regional_prices(csv_path="regional_day_ahead_prices.csv", session=Non
                 recovered, unavailable = [], []
                 for d in missing:
                     try:
-                        results.extend(_fetch_market_day(session, token, market, d, stamp, areas, source))
+                        results.extend(_fetch_day_with_fallback(session, token, market, d, stamp, areas, source))
                         recovered.append(d.isoformat())
                     except (requests.RequestException, ValueError, TypeError, KeyError, AttributeError, ET.ParseError):
                         unavailable.append(d.isoformat())
@@ -163,7 +227,10 @@ def update_regional_prices(csv_path="regional_day_ahead_prices.csv", session=Non
                        delivery_days=[day.isoformat()], intervals=len(rows), fetched_at=stamp,
                        recovered_days=recovered, incomplete_days_remaining=[d.isoformat() for d in still_missing],
                        detail="Today's complete auction curve fetched at run time; not instant intraday"
-                              + ("" if not still_missing else "; " + str(len(still_missing)) + " earlier day(s) in the 31-day window still missing, never filled with zeros"),
+                              + ("" if not still_missing else "; " + str(len(still_missing)) + " earlier day(s) in the 31-day window still missing, never filled with zeros")
+                              + ("; HU day(s) from HUPX Labs: " + ",".join(sorted({r["Delivery_Date"] for r in results
+                                  if r["Market"] == "HU" and r["Source"] == HUPX_SOURCE}))
+                                 if market == "HU" and any(r["Market"] == "HU" and r["Source"] == HUPX_SOURCE for r in results) else ""),
                        resolution_note="ENTSO-E interval grid; RS hourly auction may repeat across quarter-hours",
                        last_successful_fetch_at=stamp)
                 if still_missing:
