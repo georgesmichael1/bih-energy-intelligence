@@ -324,11 +324,21 @@ def load_nos_history() -> pd.DataFrame:
     return pd.DataFrame(columns=NOS_COLS)
 
 
-def required_hours(day: datetime.date) -> set:
-    # Hours 1..24 for a normal day; the feed labels 00:00 as hour 24. A 23-hour DST day needs 1..23.
+def local_day_hours(day: datetime.date) -> int:
     start = datetime.datetime.combine(day, datetime.time(), NOS_TZ)
-    length = int(((start + datetime.timedelta(days=1)).astimezone(datetime.timezone.utc) - start.astimezone(datetime.timezone.utc)).total_seconds() // 3600)
-    return set(range(1, min(24, length) + 1))
+    end = datetime.datetime.combine(day + datetime.timedelta(days=1), datetime.time(), NOS_TZ)
+    return int((end.astimezone(datetime.timezone.utc) - start.astimezone(datetime.timezone.utc)).total_seconds() // 3600)
+
+
+def required_hours(day: datetime.date) -> set:
+    # Normal day: labels 1..24 (00:00 is hour 24). Checked against the live source on 2026-10-25 (a
+    # 25-hour day): it returned only 23 labels (01:00..23:00), no repeated hour and no 00:00. So on a
+    # DST-change day the feed cannot show every interval; the most it can give is labels 1..23.
+    return set(range(1, 25)) if local_day_hours(day) == 24 else set(range(1, 24))
+
+
+def dst_limited(day: datetime.date) -> bool:
+    return local_day_hours(day) != 24
 
 
 def day_is_complete(hist: pd.DataFrame, day: datetime.date) -> bool:
@@ -441,6 +451,7 @@ def update_nos_history() -> dict:
     )
 
     incomplete_days = [str(d) for d in window if d != today and not day_is_complete(hist, d)]
+    dst_limited_days = [str(d) for d in window if dst_limited(d) and (len(hist) and (hist["Date"] == d).any())]
     with_actual = hist.dropna(subset=["Actual_Production_MW"]) if len(hist) else pd.DataFrame()
     latest_actual = None
     is_fresh = False
@@ -492,8 +503,9 @@ def update_nos_history() -> dict:
         error_counts=error_counts,
         retained_stale_notes=stale_days,
         incomplete_days=incomplete_days,
+        dst_limited_days=dst_limited_days,
         source=NOS_PAGE,
-        dst_note="Legacy Date/Hour feed is not DST-safe; ENTSO-E uses UTC",
+        dst_note="Legacy Date/Hour feed is not DST-safe: on 25 Oct 2026 the source returned 23 hour labels with no repeated hour, so DST-change days are never interval-complete; see dst_limited_days. ENTSO-E uses UTC",
     )
     return {
         "nos_source": "admin-ajax",
