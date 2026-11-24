@@ -8,14 +8,14 @@ from pipeline_status import DATASETS
 
 def xml(market,day,price=-1):
     tz=ZoneInfo(r.MARKETS[market][1]);start=dt.datetime.combine(day,dt.time(),tz).astimezone(dt.timezone.utc);end=dt.datetime.combine(day+dt.timedelta(days=1),dt.time(),tz).astimezone(dt.timezone.utc)
-    eic={'RS':'10YCS-SERBIATSOV','HU':'10YHU-MAVIR----U'}[market]
+    eic=r.AREAS[market]
     return f'<Publication_MarketDocument><TimeSeries><in_Domain.mRID>{eic}</in_Domain.mRID><out_Domain.mRID>{eic}</out_Domain.mRID><currency_Unit.name>EUR</currency_Unit.name><price_Measure_Unit.name>MWH</price_Measure_Unit.name><curveType>A03</curveType><Period><timeInterval><start>{start.isoformat()}</start><end>{end.isoformat()}</end></timeInterval><resolution>PT15M</resolution><Point><position>1</position><price.amount>{price}</price.amount></Point></Period></TimeSeries></Publication_MarketDocument>'.encode()
 
 def serve(prices=None,unavailable=()):
  """Fake ENTSO-E: returns the delivery day that was requested, or HTTP 404 for unavailable days."""
  prices=prices or {}
  def get(url,params=None,**kw):
-  market='HU' if params['in_Domain']=='10YHU-MAVIR----U' else 'RS'
+  market={v:k for k,v in r.AREAS.items()}[params['in_Domain']]
   tz=ZoneInfo(r.MARKETS[market][1])
   day=dt.datetime.strptime(params['periodStart'],'%Y%m%d%H%M').replace(tzinfo=dt.timezone.utc).astimezone(tz).date()
   if day.isoformat() in unavailable:return Mock(status_code=404,content=b'')
@@ -31,10 +31,10 @@ class RegionalTests(unittest.TestCase):
    with tempfile.TemporaryDirectory() as tmp,patch.dict(os.environ,ENTSOE_API_TOKEN='fake-test-only'),patch.object(r.time,'sleep'):
     old=os.getcwd();os.chdir(tmp)
     try:
-     session=Mock();session.get.side_effect=serve({'HU':0,'RS':-2})
+     session=Mock();session.get.side_effect=serve({'HU':0,'RS':-2,'HR':5.5,'ME':-0.01})
      rows=self.run_feed(session,day)
      today=[x for x in rows if x['Delivery_Date']==day.isoformat()]
-     self.assertEqual(len(today),count*2);self.assertEqual(DATASETS['price_hu']['state'],'PARTIAL');self.assertNotIn('price_me',DATASETS)
+     self.assertEqual(len(today),count*4);self.assertEqual(DATASETS['price_hu']['state'],'PARTIAL');self.assertEqual({x['Market'] for x in today},{'HU','RS','HR','ME'});self.assertIn('not named',[x for x in today if x['Market']=='HR'][0]['Attribution']);self.assertIn('not named',[x for x in today if x['Market']=='ME'][0]['Attribution']);self.assertEqual({float(x['Price_EUR_MWh']) for x in today if x['Market']=='HR'},{5.5});self.assertEqual({float(x['Price_EUR_MWh']) for x in today if x['Market']=='ME'},{-0.01})
      self.assertEqual({float(x['Price_EUR_MWh']) for x in today if x['Market']=='HU'},{0.0});self.assertEqual({float(x['Price_EUR_MWh']) for x in today if x['Market']=='RS'},{-2.0})
      for args,kwargs in session.get.call_args_list:
       self.assertTrue(kwargs['verify']);self.assertEqual(kwargs['params']['documentType'],'A44');self.assertEqual(kwargs['params']['contract_MarketAgreement.type'],'A01')
@@ -77,9 +77,13 @@ class RegionalTests(unittest.TestCase):
   with tempfile.TemporaryDirectory() as tmp,patch.dict(os.environ,ENTSOE_API_TOKEN='fake'):
    path=Path(tmp)/'prices.csv';day=dt.date(2026,11,24)
    for price in [1,2]:
-    session=Mock();session.get.side_effect=serve({'HU':price,'RS':price})
+    session=Mock();session.get.side_effect=serve({'HU':price,'RS':price,'HR':price,'ME':price})
     with patch.object(r.time,'sleep'):r.update_regional_prices(path,session,dt.datetime(2026,11,24,tzinfo=dt.timezone.utc))
    rows=[x for x in csv.DictReader(io.StringIO(path.read_text())) if x['Delivery_Date']=='2026-11-24'];self.assertEqual(len(rows),192);self.assertTrue(all(float(x['Price_EUR_MWh'])==2 for x in rows))
+   self.assertEqual({x['Market'] for x in rows},{'HU','RS'})
+   extra=Path(r.extra_csv_path(path));self.assertTrue(extra.exists())
+   rows2=[x for x in csv.DictReader(io.StringIO(extra.read_text())) if x['Delivery_Date']=='2026-11-24'];self.assertEqual(len(rows2),192);self.assertTrue(all(float(x['Price_EUR_MWh'])==2 for x in rows2))
+   self.assertEqual({x['Market'] for x in rows2},{'HR','ME'})
 
 def hupx_payload(day):
     return {"data": [{"BaseloadPrice": 150.0, "DeliveryDay": day.isoformat() + "T00:00:00Z",
