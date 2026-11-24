@@ -238,3 +238,44 @@ class AreaCodeTests(unittest.TestCase):
         # Literal check: the mocks read AREAS, so a wrong constant would otherwise pass.
         import entsoe_adapter as e
         self.assertEqual(e.AREAS['BA'], '10YBA-JPCC-----D')
+
+
+class BackfillTests(unittest.TestCase):
+    @patch('entsoe_adapter.time.sleep')
+    def test_auto_mode_recovers_incomplete_days_and_reports_unavailable(self,_):
+        today=dt.datetime.now(e.TZ).date(); yesterday=today-dt.timedelta(days=1)
+        bad={yesterday-dt.timedelta(days=3)}
+        def get(url,params=None,**kw):
+            start=dt.datetime.strptime(params['periodStart'],'%Y%m%d%H%M').replace(tzinfo=dt.timezone.utc)
+            day=start.astimezone(e.TZ).date(); s,en=e.day_bounds(day)
+            if day in bad:return Mock(status_code=200,content=b'<bad>')
+            if params['documentType']=='A65':return Mock(status_code=200,content=document('load_forecast','BA','BA',start=s,end=en))
+            a=next(k for k,v in e.AREAS.items() if v==params['out_Domain']);b=next(k for k,v in e.AREAS.items() if v==params['in_Domain'])
+            return Mock(status_code=200,content=document('hr_schedules',a,b,start=s,end=en))
+        session=Mock();session.get.side_effect=get
+        with tempfile.TemporaryDirectory() as tmp:
+            ps.DATASETS.clear()
+            e.update_entsoe(tmp,session=session,token='dummy',include_physical=False)
+            st=ps.DATASETS['entsoe_load_forecast']
+            self.assertEqual(st['state'],'PARTIAL');self.assertEqual(st['unavailable_days'],[(yesterday-dt.timedelta(days=3)).isoformat()])
+            self.assertEqual(len(st['recovered_days']),28)
+            rows=list(__import__('csv').DictReader(open(Path(tmp)/'entsoe_load_forecast.csv')))
+            self.assertEqual(len({r['Interval_Start_Local'][:10] for r in rows}),29)  # 30 days minus the unavailable one
+            self.assertTrue(all(float(r['Value_MW'])>=0 for r in rows))
+            before=Path(tmp,'entsoe_load_forecast.csv').read_text()
+            bad.clear(); session.get.reset_mock()
+            e.update_entsoe(tmp,session=session,token='dummy',include_physical=False)
+            self.assertEqual(ps.DATASETS['entsoe_load_forecast']['state'],'OK')
+            # complete days are not refetched: yesterday + the one missing day only
+            self.assertEqual(session.get.call_count,1+1+2+2)  # load: yesterday + 1 gap; HR: yesterday + 1 gap, 2 directions each
+            rows=list(__import__('csv').DictReader(open(Path(tmp)/'entsoe_load_forecast.csv')))
+            self.assertEqual(len({r['Interval_Start_Local'][:10] for r in rows}),30)
+
+    @patch('entsoe_adapter.time.sleep')
+    def test_failed_yesterday_keeps_saved_and_failed(self,_):
+        session=Mock();session.get.return_value=Mock(status_code=200,content=b'<bad>')
+        with tempfile.TemporaryDirectory() as tmp:
+            path=Path(tmp)/'entsoe_load_forecast.csv';ps.DATASETS.clear()
+            e.persist(path,parse(document('load_forecast','BA','BA'),'load_forecast','BA','BA'),START-dt.timedelta(days=40));before=path.read_text()
+            e.update_entsoe(tmp,session=session,token='dummy',include_physical=False)
+            self.assertEqual(ps.DATASETS['entsoe_load_forecast']['state'],'FAILED');self.assertEqual(path.read_text(),before)
