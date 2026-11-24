@@ -8,6 +8,33 @@ import openpyxl
 import balancing_feed as b
 import pipeline_status as ps
 
+import current_gdp as g
+
+class CurrentGdpTests(unittest.TestCase):
+    def payload(self):
+        return {'indicators': {'NGDPD': {'unit': 'Billions of U.S. dollars', 'dataset': 'WEO', 'label': 'GDP, current prices', 'source': 'World Economic Outlook (October 2026)', 'last-modified': '2026-10-08 14:43:33', 'projection-year': 2026}}, 'values': {'NGDPD': {'BIH': {'2026': 37.264, '2025': 33.589}}}}
+
+    def test_current_nominal_metric_and_forecast(self):
+        row=g.parse_current(self.payload(),2026,'stamp')
+        self.assertEqual(row['Value_USD_Billions'],37.264)
+        self.assertEqual(row['Status'],'IMF forecast')
+        self.assertEqual(row['Year'],2026)
+
+    def test_wrong_unit_missing_year_bad_value_rejected(self):
+        p=self.payload();p['indicators']['NGDPD']['unit']='Percent'
+        with self.assertRaises(ValueError):g.parse_current(p,2026,'stamp')
+        p=self.payload();del p['values']['NGDPD']['BIH']['2026']
+        with self.assertRaises(KeyError):g.parse_current(p,2026,'stamp')
+        p=self.payload();p['values']['NGDPD']['BIH']['2026']=float('nan')
+        with self.assertRaises(ValueError):g.parse_current(p,2026,'stamp')
+
+    def test_failed_fetch_retains_saved_gdp(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p=Path(tmp)/'gdp.csv';p.write_text('saved')
+            session=Mock();session.get.side_effect=RuntimeError('offline')
+            self.assertIsNone(g.update_current_gdp(p,session))
+            self.assertEqual(p.read_text(),'saved')
+
 class BalancingTests(unittest.TestCase):
     def month(self):
         text = 'Balancing market report - September 2026\nKM/MWh 1EUR=1,95583KM\n'
