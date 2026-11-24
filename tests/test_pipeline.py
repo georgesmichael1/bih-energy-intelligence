@@ -38,14 +38,13 @@ class PipelineTests(unittest.TestCase):
                      patch.object(u,'fetch_worldbank_bih_macro',return_value=pd.DataFrame()), \
                      patch.object(u,'update_nos_history',side_effect=RuntimeError('mocked')), \
                      patch.object(u,'update_flows_history',side_effect=RuntimeError('mocked')), \
-                     patch.object(u,'update_entsoe',side_effect=RuntimeError('mocked')), \
                      patch.object(u,'build_bih_intelligence_workbook') as workbook, \
                      patch.dict(os.environ,{'BUILD_LEGACY_XLSX':'0'}):
                     u.main()
                     workbook.assert_not_called()
                 status=json.loads(Path('status.json').read_text())
                 self.assertEqual(status['rows'],1)
-                self.assertEqual(status['dataset_details']['entsoe']['state'],'FAILED')
+                self.assertNotIn('entsoe', status['dataset_details'])
                 self.assertFalse(list(Path('.').glob('*.xlsx')))
             finally: os.chdir(old)
 
