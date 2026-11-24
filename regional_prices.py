@@ -8,6 +8,8 @@ import datetime as dt
 import io
 import math
 import json
+import time
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -80,13 +82,24 @@ def update_regional_prices(csv_path="regional_day_ahead_prices.csv", session=Non
                     raise ValueError("Missing server-side token")
                 start = dt.datetime.combine(day, dt.time(), ZoneInfo(timezone)).astimezone(dt.timezone.utc)
                 end = dt.datetime.combine(day + dt.timedelta(days=1), dt.time(), ZoneInfo(timezone)).astimezone(dt.timezone.utc)
-                response = session.get(source, params={"securityToken": token, "documentType": "A44",
+                params = {"securityToken": token, "documentType": "A44",
                     "contract_MarketAgreement.type": "A01", "in_Domain": areas[market], "out_Domain": areas[market],
-                    "periodStart": start.strftime("%Y%m%d%H%M"), "periodEnd": end.strftime("%Y%m%d%H%M")},
-                    timeout=(10, 30), verify=True)
-                # Never propagate requests exception strings: their URL can contain token.
-                if response.status_code != 200:
-                    raise ValueError("HTTP status " + str(response.status_code))
+                    "periodStart": start.strftime("%Y%m%d%H%M"), "periodEnd": end.strftime("%Y%m%d%H%M")}
+                for attempt in range(3):
+                    try:
+                        response = session.get(source, params=params, timeout=(10, 60), verify=True)
+                        if response.status_code in (401, 403, 429):
+                            raise ValueError("HTTP_" + str(response.status_code))
+                        if response.status_code != 200:
+                            if response.status_code >= 500 and attempt < 2:
+                                time.sleep(5 * (attempt+1))
+                                continue
+                            raise ValueError("HTTP_" + str(response.status_code))
+                        break
+                    except (requests.Timeout, requests.ConnectionError):
+                        if attempt == 2:
+                            raise
+                        time.sleep(5 * (attempt+1))
                 parsed = parse_prices(response.content, areas[market])
                 if parsed[0]["start"] != start or parsed[-1]["end"] != end:
                     raise ValueError("Wrong delivery-day boundaries")
@@ -105,9 +118,9 @@ def update_regional_prices(csv_path="regional_day_ahead_prices.csv", session=Non
                        detail="Today's complete auction curve fetched at run time; not instant intraday",
                        resolution_note="ENTSO-E interval grid; RS hourly auction may repeat across quarter-hours",
                        last_successful_fetch_at=stamp)
-            except (requests.RequestException, ValueError, TypeError, KeyError, AttributeError) as exc:
+            except (requests.RequestException, ValueError, TypeError, KeyError, AttributeError, ET.ParseError) as exc:
                 record("price_" + market.lower(), "FAILED", market=market, source=source,
-                       detail="Today auction retrieval/validation failed: " + type(exc).__name__ + "; cached rows not confirmed current")
+                       detail="Today auction retrieval/validation failed: " + type(exc).__name__ + (" " + str(exc) if isinstance(exc, ValueError) and str(exc).startswith("HTTP_") else "") + "; cached rows not confirmed current")
     finally:
         if own_session:
             session.close()
