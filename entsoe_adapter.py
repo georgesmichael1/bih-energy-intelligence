@@ -252,8 +252,12 @@ def update_entsoe(output_dir='.', day=None, session=None, token=None):
             except StopAPI as exc:
                 stopped = True
                 record(name, 'FAILED', detail=str(exc), **meta)
-            except (APIError, DataError, ValueError, OSError, KeyError, TypeError) as exc:
-                # No response text, request dump, headers or secret values in errors.
+            except (APIError, DataError) as exc:
+                # These messages are fixed strings from this code, or ENTSO-E reason
+                # codes. They never contain the token or raw response text.
+                record(name, 'FAILED', detail='Request/validation failed: ' + str(exc), **meta)
+            except (ValueError, OSError, KeyError, TypeError) as exc:
+                # Generic errors may echo input text, so only the type name is recorded.
                 record(name, 'FAILED', detail='Fetch/validation/write failed: ' + type(exc).__name__, **meta)
     finally:
         if owns_session:
