@@ -713,28 +713,16 @@ def parse_balancing_text(text):
 
 
 def fetch_nosbih_balancing_prices():
-    # Reads the NOS report for August 2025 at runtime. It is a historical reference,
-    # so success keeps the STATIC_REFERENCE label (a warning, not a failure).
-    # If the report can't be read, nothing is substituted: the table is empty and FAILED.
-    session = create_resilient_session(retries=2)
-    try:
-        resp = safe_get(session, BAL_REPORT_URL, timeout_tuple=(10, 25))
-        resp.raise_for_status()
-        if b"%PDF" not in resp.content[:10]:
-            raise ValueError("response is not a PDF")
-        with pdfplumber.open(io.BytesIO(resp.content)) as pdf:
-            text = "\n".join((page.extract_text() or "") for page in pdf.pages)
-        df = parse_balancing_text(text)
-        if df is None:
-            raise ValueError("report rows not found")
-        record("balancing", "STATIC_REFERENCE",
-               detail="Activity and price values read from NOS report, August 2025; SERC caps not in report",
-               source=BAL_REPORT_URL)
-        return df
-    except Exception as exc:
-        record("balancing", "FAILED", detail="NOS report not read: " + type(exc).__name__,
-               source=BAL_REPORT_URL)
-        return pd.DataFrame()
+    # Published monthly energy and annual capacity. Keep old helper API for legacy workbook.
+    from balancing_feed import update_balancing
+    session = create_resilient_session(retries=2, use_cffi=True)
+    class Source:
+        def get(self, url, timeout=None):
+            return safe_get(session, url, timeout_tuple=(10, 40))
+    rows = update_balancing(session=Source())
+    # The disabled legacy workbook expects an obsolete product schema. Do not silently
+    # map capacity prices or report averages into that schema.
+    return pd.DataFrame()
 
 
 def discover_derk_pdfs(page_url="http://www.derk.ba/DocumentsPDFs/"):
