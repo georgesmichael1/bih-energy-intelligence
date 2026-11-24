@@ -213,7 +213,7 @@ def persist(path, rows, cutoff):
     atomic_text(path, out.getvalue())
 
 
-def update_entsoe(output_dir='.', day=None, session=None, token=None):
+def update_entsoe(output_dir='.', day=None, session=None, token=None, include_physical=True):
     day = day or (dt.datetime.now(TZ).date() - dt.timedelta(days=1))
     start, end = day_bounds(day)
     groups = {
@@ -222,6 +222,8 @@ def update_entsoe(output_dir='.', day=None, session=None, token=None):
                            for a, b in [('BA', other), (other, 'BA')]],
         'hr_schedules': [('BA', 'HR'), ('HR', 'BA')],
     }
+    if not include_physical:
+        groups.pop('physical_flows')
     token = token if token is not None else os.environ.get('ENTSOE_API_TOKEN', '').strip()
     owns_session = session is None
     session = session or make_session()
