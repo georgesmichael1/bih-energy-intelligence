@@ -232,7 +232,7 @@ def persist(path, rows, cutoff):
 
 
 BACKFILL_MAX_PER_RUN = 10      # older incomplete days recovered per dataset per run, newest first
-BACKFILL_TIME_BUDGET_S = 420   # stop recovering older days after this many seconds
+BACKFILL_TIME_BUDGET_S = 240   # stop recovering older days after this many seconds (per dataset)
 
 
 def _saved_complete_days(path, directions, days):
