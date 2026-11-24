@@ -542,31 +542,43 @@ def discover_derk_pdfs(page_url="http://www.derk.ba/DocumentsPDFs/"):
 
 
 def fetch_cbbh_fx_rates():
+    # Reads the publication date printed on the CBBH page ("24. November 2026.")
+    # and the USD row. The EUR/BAM rate is the fixed currency-board peg.
     url = "https://cbbh.ba/CurrencyExchange/"
     session = create_resilient_session(retries=2)
     fx_data = {
         "EUR_BAM_Middle": 1.955830,
-        "USD_BAM_Buy": 1.775196,
-        "USD_BAM_Middle": 1.779645,
-        "USD_BAM_Sell": 1.784094,
+        "USD_BAM_Buy": None,
+        "USD_BAM_Middle": None,
+        "USD_BAM_Sell": None,
         "Date": None,
         "Status": "FALLBACK",
     }
     try:
         resp = safe_get(session, url, timeout_tuple=(10, 25))
-        if resp.status_code == 200:
-            text = BeautifulSoup(resp.text, "lxml").get_text(" ", strip=True)
-            usd_match = re.search(
-                r"USD\s+1\s+840\s+([\d\.,]+)\s+([\d\.,]+)\s+([\d\.,]+)", text
-            )
-            if usd_match:
-                fx_data["USD_BAM_Buy"] = float(usd_match.group(1).replace(",", "."))
-                fx_data["USD_BAM_Middle"] = float(usd_match.group(2).replace(",", "."))
-                fx_data["USD_BAM_Sell"] = float(usd_match.group(3).replace(",", "."))
-                fx_data["Status"] = "PARSED_UNDATED"
+        resp.raise_for_status()
+        text = BeautifulSoup(resp.text, "lxml").get_text(" ", strip=True)
+        date_match = re.search(
+            r"(\d{1,2})\. (January|February|March|April|May|June|July|August|"
+            r"September|October|November|December) (\d{4})\.", text)
+        usd_match = re.search(
+            r"USD\s+1\s+840\s+([\d\.]+)\s+([\d\.]+)\s+([\d\.]+)", text)
+        if date_match and usd_match:
+            published = datetime.datetime.strptime(
+                " ".join(date_match.groups()), "%d %B %Y").date()
+            fx_data["Date"] = published.isoformat()
+            fx_data["USD_BAM_Buy"] = float(usd_match.group(1))
+            fx_data["USD_BAM_Middle"] = float(usd_match.group(2))
+            fx_data["USD_BAM_Sell"] = float(usd_match.group(3))
+            fx_data["Status"] = "OK"
     except Exception:
         pass
-    record("fx", fx_data["Status"], detail="Source publication date not validated; do not relabel as live", source=url)
+    if fx_data["Status"] == "OK":
+        record("fx", "OK", detail="Rates and publication date read from CBBH page",
+               source=url, source_date=fx_data["Date"])
+    else:
+        record("fx", "FALLBACK", detail="CBBH page or date not readable; no live rate used",
+               source=url)
     return fx_data
 
 
@@ -778,7 +790,7 @@ def sync_github_master_csv(
     if fx_data.get("Status") == "OK":
         # 2. Update BIH-0128 (CBBH Live USD/BAM Spot & Buy/Sell)
         m_fx = df["Record_ID"] == "BIH-0128"
-        df.loc[m_fx, "Primary_Value"] = f"1.6957 (Avg) / {fx_data['USD_BAM_Middle']:.4f} (CBBH parsed, source date unverified)"
+        df.loc[m_fx, "Primary_Value"] = f"1.6957 (Avg) / {fx_data['USD_BAM_Middle']:.4f} (CBBH page dated {fx_data['Date']})"
         df.loc[m_fx, "Secondary_Value"] = (
             f"CBBH Buy: {fx_data['USD_BAM_Buy']:.4f} | Middle: {fx_data['USD_BAM_Middle']:.4f} | "
             f"Sell: {fx_data['USD_BAM_Sell']:.4f} BAM/USD | Fixed Peg: 1.95583 BAM/EUR"
