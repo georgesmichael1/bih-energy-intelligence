@@ -233,20 +233,29 @@ def update_regional_prices(csv_path="regional_day_ahead_prices.csv", session=Non
                 good.append(market)
                 older = [day - dt.timedelta(days=n) for n in range(1, 31)]
                 have = _saved_complete_days(prior, market, older)
-                missing = [d for d in older if d not in have][:MAX_BACKFILL_PER_RUN]
-                recovered, unavailable = [], []
+                all_missing = [d for d in older if d not in have]
+                missing = all_missing
+                if len(all_missing) > MAX_BACKFILL_PER_RUN:
+                    # Newest 5 always, the rest rotate by half-hour slot so days that keep failing
+                    # cannot starve older days of any attempt.
+                    head, rest = all_missing[:5], all_missing[5:]
+                    k = (now.hour * 2 + now.minute // 30) % len(rest)
+                    missing = head + (rest[k:] + rest[:k])[:MAX_BACKFILL_PER_RUN - 5]
+                recovered, unavailable, reasons = [], [], {}
                 for d in missing:
                     try:
                         results.extend(_fetch_day_with_fallback(session, token, market, d, stamp, areas, source))
                         recovered.append(d.isoformat())
-                    except (requests.RequestException, ValueError, TypeError, KeyError, AttributeError, ET.ParseError):
+                    except (requests.RequestException, ValueError, TypeError, KeyError, AttributeError, ET.ParseError) as exc:
                         unavailable.append(d.isoformat())
+                        # Only our own fixed ValueError texts are kept; request errors can carry the URL.
+                        reasons[d.isoformat()] = type(exc).__name__ + (": " + str(exc)[:80] if type(exc) is ValueError else "")
                     time.sleep(1)
                 still_missing = [d for d in older if d not in have and d.isoformat() not in recovered]
                 state = "OK" if not still_missing else "PARTIAL"
                 record("price_" + market.lower(), state, market=market, product="DAY_AHEAD", source=source,
                        delivery_days=[day.isoformat()], intervals=len(rows), fetched_at=stamp,
-                       recovered_days=recovered, incomplete_days_remaining=[d.isoformat() for d in still_missing],
+                       recovered_days=recovered, unavailable_reasons=reasons, attempted_days=[d.isoformat() for d in missing], incomplete_days_remaining=[d.isoformat() for d in still_missing],
                        detail="Today's complete auction curve fetched at run time; not instant intraday"
                               + ("" if not still_missing else "; " + str(len(still_missing)) + " earlier day(s) in the 31-day window still missing, never filled with zeros")
                               + ("; HU day(s) from HUPX Labs: " + ",".join(sorted({r["Delivery_Date"] for r in results
