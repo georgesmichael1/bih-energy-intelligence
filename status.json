@@ -1,25 +1,25 @@
 {
   "schema_version": 2,
-  "run_finished_at": "2026-11-25T03:41:11+00:00",
+  "run_finished_at": "2026-11-25T05:48:15+00:00",
   "last_verified_date": "24 Nov 2026",
   "last_verified_date_is_legacy": true,
   "verification_note": "No whole-master verification performed; use dataset_details.",
   "rows": 487,
   "nos_source": "admin-ajax",
-  "nos_fetched_at": "2026-11-25T04:38+01:00",
-  "nos_last_attempt_at": "2026-11-25T04:38+01:00",
-  "nos_last_successful_fetch_at": "2026-11-25T04:38+01:00",
+  "nos_fetched_at": "2026-11-25T06:46+01:00",
+  "nos_last_attempt_at": "2026-11-25T06:46+01:00",
+  "nos_last_successful_fetch_at": "2026-11-25T06:46+01:00",
   "nos_days_requested": 3,
   "nos_days_succeeded": 3,
   "nos_days_failed": [],
   "nos_error_counts": {},
   "nos_rows": 744,
-  "nos_latest_actual": "2026-11-25 04:00",
-  "flows_timestamp": "2026-11-25 04:27",
+  "nos_latest_actual": "2026-11-25 06:00",
+  "flows_timestamp": "2026-11-25 06:33",
   "flows_checks_ok": true,
-  "flows_rows": 28,
-  "flows_last_attempt_at": "2026-11-25T04:38+01:00",
-  "flows_last_successful_fetch_at": "2026-11-25T04:38+01:00",
+  "flows_rows": 29,
+  "flows_last_attempt_at": "2026-11-25T06:46+01:00",
+  "flows_last_successful_fetch_at": "2026-11-25T06:46+01:00",
   "datasets": {
     "balancing": "OK",
     "fx": "OK",
@@ -31,15 +31,15 @@
     "flows": "OK",
     "price_hu": "OK",
     "price_rs": "OK",
-    "price_hr": "FAILED: PARTIAL: Today's complete auction curve fetched at run time; not instant intraday; 12 earlier day(s) in the 31-day window still missing, never filled with zeros",
-    "price_me": "FAILED: PARTIAL: Today's complete auction curve fetched at run time; not instant intraday; 10 earlier day(s) in the 31-day window still missing, never filled with zeros",
+    "price_hr": "FAILED: PARTIAL: Today's complete auction curve fetched at run time; not instant intraday; 3 earlier day(s) in the 31-day window still missing, never filled with zeros",
+    "price_me": "OK",
     "current_gdp": "OK"
   },
   "dataset_details": {
     "balancing": {
       "state": "OK",
-      "checked_at": "2026-11-25T03:38:08+00:00",
-      "last_attempt_at": "2026-11-25T03:38:08+00:00",
+      "checked_at": "2026-11-25T05:46:10+00:00",
+      "last_attempt_at": "2026-11-25T05:46:10+00:00",
       "detail": "Latest linked published reports, not real-time tariffs",
       "monthly_period": "2026-09",
       "capacity_year": "2025",
@@ -47,30 +47,30 @@
       "capacity_source": "https://www.nosbih.ba/files/balansno/izvjestaji/godine/2025-en-balansno-trziste-tabele.xlsx",
       "publication_index": "https://www.nosbih.ba/en/trziste/balansno-trziste/izvjestaji-o-balansnom-trzistu/",
       "publication_date": null,
-      "last_success_at": "2026-11-25T03:38:08+00:00"
+      "last_success_at": "2026-11-25T05:46:10+00:00"
     },
     "fx": {
       "state": "OK",
-      "checked_at": "2026-11-25T03:38:11+00:00",
-      "last_attempt_at": "2026-11-25T03:38:11+00:00",
+      "checked_at": "2026-11-25T05:46:11+00:00",
+      "last_attempt_at": "2026-11-25T05:46:11+00:00",
       "detail": "Rates and publication date read from CBBH page",
       "source": "https://cbbh.ba/CurrencyExchange/",
       "source_date": "2026-11-25",
-      "last_success_at": "2026-11-25T03:38:11+00:00"
+      "last_success_at": "2026-11-25T05:46:11+00:00"
     },
     "population": {
       "state": "OK",
-      "checked_at": "2026-11-25T03:38:11+00:00",
-      "last_attempt_at": "2026-11-25T03:38:11+00:00",
+      "checked_at": "2026-11-25T05:46:11+00:00",
+      "last_attempt_at": "2026-11-25T05:46:11+00:00",
       "detail": "Page values parsed",
       "source": "https://www.worldometers.info/world-population/bosnia-and-herzegovina-population/",
       "source_as_of": null,
-      "last_success_at": "2026-11-25T03:38:11+00:00"
+      "last_success_at": "2026-11-25T05:46:11+00:00"
     },
     "bhas": {
       "state": "OK",
-      "checked_at": "2026-11-25T03:38:14+00:00",
-      "last_attempt_at": "2026-11-25T03:38:14+00:00",
+      "checked_at": "2026-11-25T05:46:12+00:00",
+      "last_attempt_at": "2026-11-25T05:46:12+00:00",
       "detail": "Headline KPIs read from BHAS page with reference periods",
       "source": "https://bhas.gov.ba/?lang=en",
       "periods": {
@@ -81,12 +81,12 @@
         "Imports_Goods_I_IX_Thousand_BAM": "I-IX, 2026",
         "Exports_Goods_I_IX_Thousand_BAM": "I-IX, 2026"
       },
-      "last_success_at": "2026-11-25T03:38:14+00:00"
+      "last_success_at": "2026-11-25T05:46:12+00:00"
     },
     "worldbank": {
       "state": "OK",
-      "checked_at": "2026-11-25T03:38:15+00:00",
-      "last_attempt_at": "2026-11-25T03:38:15+00:00",
+      "checked_at": "2026-11-25T05:46:12+00:00",
+      "last_attempt_at": "2026-11-25T05:46:12+00:00",
       "detail": "Historical values, not today's observation",
       "indicators_parsed": [
         "NE.EXP.GNFS.CD",
@@ -98,15 +98,15 @@
         2020,
         2025
       ],
-      "last_success_at": "2026-11-25T03:38:15+00:00"
+      "last_success_at": "2026-11-25T05:46:12+00:00"
     },
     "nos": {
       "state": "PARTIAL",
-      "checked_at": "2026-11-25T03:38:19+00:00",
-      "last_attempt_at": "2026-11-25T04:38+01:00",
+      "checked_at": "2026-11-25T05:46:15+00:00",
+      "last_attempt_at": "2026-11-25T06:46+01:00",
       "detail": "Retained saved data, not confirmed current: []; 1 day(s) in the 31-day window still incomplete: ['2026-11-22']",
-      "latest_actual": "2026-11-25 04:00",
-      "last_successful_fetch_at": "2026-11-25T04:38+01:00",
+      "latest_actual": "2026-11-25 06:00",
+      "last_successful_fetch_at": "2026-11-25T06:46+01:00",
       "days_requested": 3,
       "days_succeeded": 3,
       "error_counts": {},
@@ -121,8 +121,8 @@
     },
     "dam": {
       "state": "PARTIAL",
-      "checked_at": "2026-11-25T03:41:11+00:00",
-      "last_attempt_at": "2026-11-25T03:41:11+00:00",
+      "checked_at": "2026-11-25T05:48:15+00:00",
+      "last_attempt_at": "2026-11-25T05:48:15+00:00",
       "detail": "Required current-day market or window days missing",
       "markets": [
         "HU",
@@ -137,22 +137,22 @@
     },
     "flows": {
       "state": "OK",
-      "checked_at": "2026-11-25T03:38:22+00:00",
-      "last_attempt_at": "2026-11-25T04:38+01:00",
+      "checked_at": "2026-11-25T05:46:15+00:00",
+      "last_attempt_at": "2026-11-25T06:46+01:00",
       "detail": "Two-hour freshness ceiling; separate from historical ENTSO-E",
-      "last_successful_fetch_at": "2026-11-25T04:38+01:00",
+      "last_successful_fetch_at": "2026-11-25T06:46+01:00",
       "source": "https://www.nosbih.ba/en/ees/fizicki-tokovi/",
-      "flows_timestamp": "2026-11-25 04:27",
+      "flows_timestamp": "2026-11-25 06:33",
       "flows_checks_ok": true,
-      "flows_rows": 28,
-      "flows_last_attempt_at": "2026-11-25T04:38+01:00",
-      "flows_last_successful_fetch_at": "2026-11-25T04:38+01:00",
-      "last_success_at": "2026-11-25T03:38:22+00:00"
+      "flows_rows": 29,
+      "flows_last_attempt_at": "2026-11-25T06:46+01:00",
+      "flows_last_successful_fetch_at": "2026-11-25T06:46+01:00",
+      "last_success_at": "2026-11-25T05:46:15+00:00"
     },
     "price_hu": {
       "state": "OK",
-      "checked_at": "2026-11-25T03:38:24+00:00",
-      "last_attempt_at": "2026-11-25T03:38:24+00:00",
+      "checked_at": "2026-11-25T05:46:23+00:00",
+      "last_attempt_at": "2026-11-25T05:46:23+00:00",
       "detail": "Today's complete auction curve fetched at run time; not instant intraday",
       "market": "HU",
       "product": "DAY_AHEAD",
@@ -161,17 +161,19 @@
         "2026-11-25"
       ],
       "intervals": 96,
-      "fetched_at": "2026-11-25T03:38:22.344385+00:00",
+      "fetched_at": "2026-11-25T05:46:15.926344+00:00",
       "recovered_days": [],
+      "unavailable_reasons": {},
+      "attempted_days": [],
       "incomplete_days_remaining": [],
       "resolution_note": "ENTSO-E interval grid; RS hourly auction may repeat across quarter-hours",
-      "last_successful_fetch_at": "2026-11-25T03:38:22.344385+00:00",
-      "last_success_at": "2026-11-25T03:38:24+00:00"
+      "last_successful_fetch_at": "2026-11-25T05:46:15.926344+00:00",
+      "last_success_at": "2026-11-25T05:46:23+00:00"
     },
     "price_rs": {
       "state": "OK",
-      "checked_at": "2026-11-25T03:38:35+00:00",
-      "last_attempt_at": "2026-11-25T03:38:35+00:00",
+      "checked_at": "2026-11-25T05:46:30+00:00",
+      "last_attempt_at": "2026-11-25T05:46:30+00:00",
       "detail": "Today's complete auction curve fetched at run time; not instant intraday",
       "market": "RS",
       "product": "DAY_AHEAD",
@@ -180,18 +182,20 @@
         "2026-11-25"
       ],
       "intervals": 96,
-      "fetched_at": "2026-11-25T03:38:22.344385+00:00",
+      "fetched_at": "2026-11-25T05:46:15.926344+00:00",
       "recovered_days": [],
+      "unavailable_reasons": {},
+      "attempted_days": [],
       "incomplete_days_remaining": [],
       "resolution_note": "ENTSO-E interval grid; RS hourly auction may repeat across quarter-hours",
-      "last_successful_fetch_at": "2026-11-25T03:38:22.344385+00:00",
-      "last_success_at": "2026-11-25T03:38:35+00:00"
+      "last_successful_fetch_at": "2026-11-25T05:46:15.926344+00:00",
+      "last_success_at": "2026-11-25T05:46:30+00:00"
     },
     "price_hr": {
       "state": "PARTIAL",
-      "checked_at": "2026-11-25T03:39:55+00:00",
-      "last_attempt_at": "2026-11-25T03:39:55+00:00",
-      "detail": "Today's complete auction curve fetched at run time; not instant intraday; 12 earlier day(s) in the 31-day window still missing, never filled with zeros",
+      "checked_at": "2026-11-25T05:47:30+00:00",
+      "last_attempt_at": "2026-11-25T05:47:30+00:00",
+      "detail": "Today's complete auction curve fetched at run time; not instant intraday; 3 earlier day(s) in the 31-day window still missing, never filled with zeros",
       "market": "HR",
       "product": "DAY_AHEAD",
       "source": "https://web-api.tp.entsoe.eu/api",
@@ -199,41 +203,47 @@
         "2026-11-25"
       ],
       "intervals": 96,
-      "fetched_at": "2026-11-25T03:38:22.344385+00:00",
+      "fetched_at": "2026-11-25T05:46:15.926344+00:00",
       "recovered_days": [
-        "2026-11-14",
-        "2026-11-13",
-        "2026-11-12",
-        "2026-11-11",
-        "2026-11-10",
-        "2026-11-09",
-        "2026-11-08",
-        "2026-11-07",
-        "2026-11-06"
+        "2026-11-05",
+        "2026-11-04",
+        "2026-11-03",
+        "2026-11-02",
+        "2026-10-28",
+        "2026-10-27",
+        "2026-10-26",
+        "2026-11-01",
+        "2026-10-31"
       ],
-      "incomplete_days_remaining": [
+      "unavailable_reasons": {
+        "2026-11-21": "ValueError: No price series returned"
+      },
+      "attempted_days": [
         "2026-11-21",
         "2026-11-05",
         "2026-11-04",
         "2026-11-03",
         "2026-11-02",
-        "2026-11-01",
-        "2026-10-31",
-        "2026-10-30",
-        "2026-10-29",
         "2026-10-28",
         "2026-10-27",
-        "2026-10-26"
+        "2026-10-26",
+        "2026-11-01",
+        "2026-10-31"
+      ],
+      "incomplete_days_remaining": [
+        "2026-11-21",
+        "2026-10-30",
+        "2026-10-29"
       ],
       "resolution_note": "ENTSO-E interval grid; RS hourly auction may repeat across quarter-hours",
-      "last_successful_fetch_at": "2026-11-25T03:38:22.344385+00:00",
+      "last_successful_fetch_at": "2026-11-25T05:46:15.926344+00:00",
       "last_success_at": null
     },
     "price_me": {
-      "state": "PARTIAL",
-      "checked_at": "2026-11-25T03:41:11+00:00",
-      "last_attempt_at": "2026-11-25T03:41:11+00:00",
-      "detail": "Today's complete auction curve fetched at run time; not instant intraday; 10 earlier day(s) in the 31-day window still missing, never filled with zeros",
+      "state": "OK",
+      "checked_at": "2026-11-25T05:48:15+00:00",
+      "last_attempt_at": "2026-11-25T05:48:15+00:00",
+      "detail": "Today's complete auction curve fetched at run time; not instant intraday",
       "market": "ME",
       "product": "DAY_AHEAD",
       "source": "https://web-api.tp.entsoe.eu/api",
@@ -241,20 +251,8 @@
         "2026-11-25"
       ],
       "intervals": 24,
-      "fetched_at": "2026-11-25T03:38:22.344385+00:00",
+      "fetched_at": "2026-11-25T05:46:15.926344+00:00",
       "recovered_days": [
-        "2026-11-14",
-        "2026-11-13",
-        "2026-11-12",
-        "2026-11-11",
-        "2026-11-10",
-        "2026-11-09",
-        "2026-11-08",
-        "2026-11-07",
-        "2026-11-06",
-        "2026-11-05"
-      ],
-      "incomplete_days_remaining": [
         "2026-11-04",
         "2026-11-03",
         "2026-11-02",
@@ -266,14 +264,28 @@
         "2026-10-27",
         "2026-10-26"
       ],
+      "unavailable_reasons": {},
+      "attempted_days": [
+        "2026-11-04",
+        "2026-11-03",
+        "2026-11-02",
+        "2026-11-01",
+        "2026-10-31",
+        "2026-10-30",
+        "2026-10-29",
+        "2026-10-28",
+        "2026-10-27",
+        "2026-10-26"
+      ],
+      "incomplete_days_remaining": [],
       "resolution_note": "ENTSO-E interval grid; RS hourly auction may repeat across quarter-hours",
-      "last_successful_fetch_at": "2026-11-25T03:38:22.344385+00:00",
-      "last_success_at": null
+      "last_successful_fetch_at": "2026-11-25T05:46:15.926344+00:00",
+      "last_success_at": "2026-11-25T05:48:15+00:00"
     },
     "current_gdp": {
       "state": "OK",
-      "checked_at": "2026-11-25T03:41:12+00:00",
-      "last_attempt_at": "2026-11-25T03:41:12+00:00",
+      "checked_at": "2026-11-25T05:48:15+00:00",
+      "last_attempt_at": "2026-11-25T05:48:15+00:00",
       "detail": "Annual nominal GDP, current-year IMF forecast/estimate, not a real-time observation",
       "year": 2026,
       "value_usd_billions": 37.264,
@@ -281,7 +293,7 @@
       "vintage": "World Economic Outlook (October 2026)",
       "source_modified": "2026-10-08 14:43:33",
       "source": "https://www.imf.org/external/datamapper/api/v2/NGDPD",
-      "last_success_at": "2026-11-25T03:41:12+00:00"
+      "last_success_at": "2026-11-25T05:48:15+00:00"
     }
   }
 }
