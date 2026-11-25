@@ -463,6 +463,20 @@ class NosWindowIntegrityTests(unittest.TestCase):
             self.assertEqual(min(saved["Date"]), today - datetime.timedelta(days=29))
             self.assertFalse(saved.duplicated(["Date", "Hour"]).any())
 
+    def test_verified_nos_source_gap_only_covers_its_date_and_column(self):
+        day = datetime.date(2026, 11, 22)
+        gap = _day_frame(day); gap["Planned_Consumption_MW"] = float("nan")
+        self.assertFalse(u.day_is_complete(gap, day))      # still retried every run
+        self.assertTrue(u.day_gap_is_verified(gap, day))
+        gap2 = gap.copy(); gap2.loc[gap2["Hour"] == 5, "Actual_Production_MW"] = float("nan")
+        self.assertFalse(u.day_gap_is_verified(gap2, day))  # another blank value is not covered
+        other = datetime.date(2026, 11, 21); g3 = _day_frame(other); g3["Planned_Consumption_MW"] = float("nan")
+        self.assertFalse(u.day_gap_is_verified(g3, other))  # other date is not covered
+        part = gap[gap["Hour"] <= 20]
+        self.assertFalse(u.day_gap_is_verified(part, day))  # missing hours are not covered
+        zero = _day_frame(day, value=0.0)
+        self.assertTrue(u.day_is_complete(zero, day))        # real source zeros stay complete, not gaps
+
     def test_incomplete_older_day_is_recovered(self):
         today = datetime.date(2026, 11, 24); gap = today - datetime.timedelta(days=9)
         with tempfile.TemporaryDirectory() as tmp:
