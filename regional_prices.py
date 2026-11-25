@@ -253,10 +253,11 @@ def update_regional_prices(csv_path="regional_day_ahead_prices.csv", session=Non
                 k = (now.hour * 2 + now.minute // 30) % len(rest) if rest else 0
                 missing = head + rest[k:] + rest[:k]
                 deadline = time.monotonic() + BACKFILL_SECONDS_PER_RUN
-                recovered, unavailable, reasons, no_data = [], [], {}, []
+                recovered, unavailable, reasons, no_data, attempted = [], [], {}, [], set()
                 for d in missing:
                     if time.monotonic() > deadline:
                         break
+                    attempted.add(d.isoformat())
                     try:
                         results.extend(_fetch_day_with_fallback(session, token, market, d, stamp, areas, source))
                         recovered.append(d.isoformat())
@@ -275,9 +276,11 @@ def update_regional_prices(csv_path="regional_day_ahead_prices.csv", session=Non
                 record("price_" + market.lower(), state, market=market, product="DAY_AHEAD", source=source,
                        delivery_days=[day.isoformat()], intervals=len(rows), fetched_at=stamp,
                        recovered_days=recovered, source_no_data_days=no_data,
-                       verified_source_gaps=[dict(date=d, **VERIFIED_SOURCE_GAPS[(market, d)]) for d in verified_gaps], unavailable_reasons=reasons, attempted_days=[d.isoformat() for d in missing], incomplete_days_remaining=[d.isoformat() for d in still_missing],
+                       verified_source_gaps=[dict(date=d, **VERIFIED_SOURCE_GAPS[(market, d)]) for d in verified_gaps], unavailable_reasons=reasons, attempted_days=[d.isoformat() for d in missing if d.isoformat() in attempted],
+                       deferred_days=[d.isoformat() for d in missing if d.isoformat() not in attempted], incomplete_days_remaining=[d.isoformat() for d in still_missing],
                        detail="Today's complete auction curve fetched at run time; not instant intraday"
                               + ("" if not blocking else "; " + str(len(blocking)) + " earlier day(s) in the 31-day window still missing, never filled with zeros")
+                              + ("" if len(attempted) == len(missing) else "; time budget reached, " + str(len(missing) - len(attempted)) + " day(s) deferred to the next run")
                               + ("" if not verified_gaps else "; verified source gap(s), left empty and retried every run: " + ",".join(verified_gaps))
                               + ("" if not [d for d in no_data if d not in verified_gaps] else "; API returned no price series for " + ",".join(d for d in no_data if d not in verified_gaps) + " (not yet verified on the TP page)")
                               + ("; HU day(s) from HUPX Labs: " + ",".join(sorted({r["Delivery_Date"] for r in results
