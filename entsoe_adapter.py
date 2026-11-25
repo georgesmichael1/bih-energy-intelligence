@@ -11,8 +11,10 @@ import datetime as dt
 import io
 import math
 import os
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import re
+import threading
 import time
 import xml.etree.ElementTree as ET
 from zoneinfo import ZoneInfo
@@ -270,7 +272,29 @@ def _saved_complete_days(path, directions, days):
     return done
 
 
-def update_entsoe(output_dir='.', day=None, session=None, token=None, include_physical=True, include_capacity=False):
+MAX_WORKERS = 4
+PACE_MIN_INTERVAL_S = 0.35   # token-wide spacing when several workers run: at most ~170 requests/min (ENTSO-E allows 400)
+
+
+class _Pacer:
+    """Token-wide request spacing shared by all workers of one run."""
+    def __init__(self, interval):
+        self.interval = interval
+        self.lock = threading.Lock()
+        self.next_at = 0.0
+
+    def wait(self):
+        if self.interval <= 0:
+            return
+        with self.lock:
+            now = time.monotonic()
+            start = max(now, self.next_at)
+            self.next_at = start + self.interval
+        if start > now:
+            time.sleep(start - now)
+
+
+def update_entsoe(output_dir='.', day=None, session=None, token=None, include_physical=True, include_capacity=False, workers=None):
     """Explicit day: fetch exactly that day. No day: refresh yesterday and also recover any
     incomplete older day in the 31-day local window (yesterday plus 29 earlier, today excluded).
     A day is saved only after every direction validates; failed days keep prior saved rows."""
@@ -297,9 +321,22 @@ def update_entsoe(output_dir='.', day=None, session=None, token=None, include_ph
         groups.pop('ntc_day_ahead'); groups.pop('nominated_daily'); groups.pop('scheduled_rs_me')
         groups.pop('scheduled_total')
     token = token if token is not None else os.environ.get('ENTSOE_API_TOKEN', '').strip()
+    if workers is None:
+        workers = int(os.environ.get('ENTSOE_WORKERS', '1') or 1)
+    workers = max(1, min(int(workers), MAX_WORKERS))   # 1 = original sequential behaviour
     owns_session = session is None
     session = session or make_session()
-    stopped = False
+    stop = threading.Event()                    # set on 401/403/429: no worker sends another request
+    pacer = _Pacer(PACE_MIN_INTERVAL_S if workers > 1 else 0.0)
+    local = threading.local()
+    extra_sessions = []
+    def sess():
+        if workers == 1 or not owns_session:
+            return session
+        if not hasattr(local, 's'):
+            local.s = make_session()
+            extra_sessions.append(local.s)
+        return local.s
     def fetch_day(dataset, directions, target_day):
         d_start, d_end = day_bounds(target_day)
         rows = []
@@ -321,67 +358,87 @@ def update_entsoe(output_dir='.', day=None, session=None, token=None, include_ph
                     parameters['contract_MarketAgreement.type'] = 'A05'
                 if dataset == 'nominated_daily':
                     parameters['businessType'] = 'B08'
-            body = fetch(session, token, parameters)
+            if stop.is_set():
+                raise StopAPI('Stopped after authentication/rate limit')
+            pacer.wait()
+            try:
+                body = fetch(sess(), token, parameters)
+            except StopAPI:
+                stop.set()
+                raise
             rows.extend(parse_document(body, dataset, source, target, d_start, d_end, utc_now()))
             time.sleep(1)
         return rows
-    try:
-        for dataset, directions in groups.items():
-            name = 'entsoe_' + dataset
-            meta = {'target_local_day': day.isoformat(), 'source': ENDPOINT,
-                    'coverage_start_utc': iso(start), 'coverage_end_utc': iso(end)}
-            if not token or stopped:
-                record(name, 'FAILED', detail='Token missing' if not token else 'Stopped after authentication/rate limit', **meta)
+    def process(dataset, directions):
+        name = 'entsoe_' + dataset
+        meta = {'target_local_day': day.isoformat(), 'source': ENDPOINT,
+                'coverage_start_utc': iso(start), 'coverage_end_utc': iso(end)}
+        if not token or stop.is_set():
+            record(name, 'FAILED', detail='Token missing' if not token else 'Stopped after authentication/rate limit', **meta)
+            return
+        path = Path(output_dir) / (name + '.csv')
+        backfill = []
+        if auto:
+            window = [day - dt.timedelta(days=n) for n in range(1, 30)]
+            have = _saved_complete_days(path, directions, window)
+            backfill = [d for d in window if d not in have]  # newest first
+            skipped = backfill[BACKFILL_MAX_PER_RUN:]
+            backfill = backfill[:BACKFILL_MAX_PER_RUN]
+        cutoff = day_bounds(day - dt.timedelta(days=29))[0] if auto else start - dt.timedelta(days=29)
+        try:
+            rows = fetch_day(dataset, directions, day)
+            persist(path, rows, cutoff)
+        except StopAPI as exc:
+            stop.set()
+            record(name, 'FAILED', detail=str(exc), **meta)
+            return
+        except (APIError, DataError) as exc:
+            # These messages are fixed strings from this code, or ENTSO-E reason
+            # codes. They never contain the token or raw response text.
+            record(name, 'FAILED', detail='Request/validation failed: ' + str(exc).replace(token, '[redacted]'), **meta)
+            return
+        except (ValueError, OSError, KeyError, TypeError) as exc:
+            # Generic errors may echo input text, so only the type name is recorded.
+            record(name, 'FAILED', detail='Fetch/validation/write failed: ' + type(exc).__name__, **meta)
+            return
+        recovered, unavailable = [], []
+        began = time.monotonic()
+        for older in backfill:
+            if stop.is_set() or time.monotonic() - began > BACKFILL_TIME_BUDGET_S:
+                unavailable.append(older.isoformat())
                 continue
-            path = Path(output_dir) / (name + '.csv')
-            backfill = []
-            if auto:
-                window = [day - dt.timedelta(days=n) for n in range(1, 30)]
-                have = _saved_complete_days(path, directions, window)
-                backfill = [d for d in window if d not in have]  # newest first
-                skipped = backfill[BACKFILL_MAX_PER_RUN:]
-                backfill = backfill[:BACKFILL_MAX_PER_RUN]
-            cutoff = day_bounds(day - dt.timedelta(days=29))[0] if auto else start - dt.timedelta(days=29)
             try:
-                rows = fetch_day(dataset, directions, day)
-                persist(path, rows, cutoff)
-            except StopAPI as exc:
-                stopped = True
-                record(name, 'FAILED', detail=str(exc), **meta)
-                continue
-            except (APIError, DataError) as exc:
-                # These messages are fixed strings from this code, or ENTSO-E reason
-                # codes. They never contain the token or raw response text.
-                record(name, 'FAILED', detail='Request/validation failed: ' + str(exc).replace(token, '[redacted]'), **meta)
-                continue
-            except (ValueError, OSError, KeyError, TypeError) as exc:
-                # Generic errors may echo input text, so only the type name is recorded.
-                record(name, 'FAILED', detail='Fetch/validation/write failed: ' + type(exc).__name__, **meta)
-                continue
-            recovered, unavailable = [], []
-            began = time.monotonic()
-            for older in backfill:
-                if stopped or time.monotonic() - began > BACKFILL_TIME_BUDGET_S:
-                    unavailable.append(older.isoformat())
-                    continue
-                try:
-                    persist(path, fetch_day(dataset, directions, older), cutoff)
-                    recovered.append(older.isoformat())
-                except StopAPI:
-                    stopped = True
-                    unavailable.append(older.isoformat())
-                except (APIError, DataError, ValueError, OSError, KeyError, TypeError):
-                    unavailable.append(older.isoformat())
-            if auto:
-                unavailable += [d.isoformat() for d in skipped]  # not yet attempted, still incomplete
-                meta.update(recovered_days=recovered, unavailable_days=unavailable)
-            if unavailable:
-                record(name, 'PARTIAL', detail='Yesterday saved; ' + str(len(unavailable)) +
-                       ' earlier day(s) still unavailable or incomplete at the source. Saved rows kept, gaps are not zero',
-                       row_count=len(rows), directions=len(directions), unit='MW', **meta)
-            else:
-                record(name, 'OK', detail='Complete requested historical day; not current-day data',
-                       row_count=len(rows), directions=len(directions), unit='MW', **meta)
+                persist(path, fetch_day(dataset, directions, older), cutoff)
+                recovered.append(older.isoformat())
+            except StopAPI:
+                stop.set()
+                unavailable.append(older.isoformat())
+            except (APIError, DataError, ValueError, OSError, KeyError, TypeError):
+                unavailable.append(older.isoformat())
+        if auto:
+            unavailable += [d.isoformat() for d in skipped]  # not yet attempted, still incomplete
+            meta.update(recovered_days=recovered, unavailable_days=unavailable)
+        if unavailable:
+            record(name, 'PARTIAL', detail='Yesterday saved; ' + str(len(unavailable)) +
+                   ' earlier day(s) still unavailable or incomplete at the source. Saved rows kept, gaps are not zero',
+                   row_count=len(rows), directions=len(directions), unit='MW', **meta)
+        else:
+            record(name, 'OK', detail='Complete requested historical day; not current-day data',
+                   row_count=len(rows), directions=len(directions), unit='MW', **meta)
+
+    try:
+        if workers == 1:
+            for dataset, directions in groups.items():
+                process(dataset, directions)
+        else:
+            # Largest groups first so the pool finishes together. Each dataset writes only its own CSV.
+            items = sorted(groups.items(), key=lambda kv: -len(kv[1]))
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                for _ in pool.map(lambda kv: process(*kv), items):
+                    pass
     finally:
+        for extra in extra_sessions:
+            extra.close()
         if owns_session:
             session.close()
+
