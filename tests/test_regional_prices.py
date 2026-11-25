@@ -65,6 +65,29 @@ class RegionalTests(unittest.TestCase):
    self.assertEqual(len(st['attempted_days']),30);self.assertEqual(st['incomplete_days_remaining'],['2026-11-10'])
    self.assertEqual(st['state'],'PARTIAL');self.assertIn('2026-11-10',st['unavailable_reasons'])
    self.assertNotIn('securityToken',str(st))
+ def test_verified_source_gap_is_ok_but_unverified_empty_day_stays_partial(self):
+  now=dt.datetime(2026,11,24,12,tzinfo=dt.timezone.utc)
+  empty=b'<Acknowledgement_MarketDocument><Reason><text>No matching data found</text></Reason></Acknowledgement_MarketDocument>'
+  def make(empty_days):
+   base=serve()
+   def get(url,params=None,**kw):
+    market={v:k for k,v in r.AREAS.items()}[params['in_Domain']]
+    tz=ZoneInfo(r.MARKETS[market][1])
+    day=dt.datetime.strptime(params['periodStart'],'%Y%m%d%H%M').replace(tzinfo=dt.timezone.utc).astimezone(tz).date()
+    if (market,day.isoformat()) in empty_days:return Mock(status_code=200,content=empty)
+    return base(url,params=params,**kw)
+   return get
+  with tempfile.TemporaryDirectory() as tmp,patch.dict(os.environ,ENTSOE_API_TOKEN='fake'),patch.object(r.time,'sleep'):
+   path=Path(tmp)/'p.csv'
+   session=Mock();session.get.side_effect=make({('HR','2026-11-10'),('ME','2026-11-09')})
+   with patch.dict(r.VERIFIED_SOURCE_GAPS,{('HR','2026-11-10'):{'checked_at':'t','evidence':'e','evidence_url':'u'}}):
+    r.update_regional_prices(path,session,now)
+   hr,me=DATASETS['price_hr'],DATASETS['price_me']
+   self.assertEqual(hr['state'],'OK');self.assertEqual(hr['verified_source_gaps'][0]['date'],'2026-11-10');self.assertIn('verified source gap',hr['detail'])
+   self.assertEqual(me['state'],'PARTIAL');self.assertEqual(me['incomplete_days_remaining'],['2026-11-09'])
+   rows=list(csv.DictReader(io.StringIO(Path(r.extra_csv_path(path)).read_text())))
+   self.assertIn('2026-11-09',{x['Delivery_Date'] for x in rows if x['Market']=='HR'})
+   self.assertNotIn('2026-11-10',{x['Delivery_Date'] for x in rows if x['Market']=='HR'})  # empty, never zero
  def test_unavailable_day_not_zero_failure_visible_saved_kept(self):
   now=dt.datetime(2026,11,24,12,tzinfo=dt.timezone.utc)
   with tempfile.TemporaryDirectory() as tmp,patch.dict(os.environ,ENTSOE_API_TOKEN='fake'),patch.object(r.time,'sleep'):
