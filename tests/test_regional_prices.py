@@ -62,7 +62,7 @@ class RegionalTests(unittest.TestCase):
    session=Mock();session.get.side_effect=serve(unavailable={'2026-11-10'})
    r.update_regional_prices(path,session,now)
    st=DATASETS['price_hr']
-   self.assertEqual(len(st['attempted_days']),30);self.assertEqual(st['incomplete_days_remaining'],['2026-11-10'])
+   self.assertEqual(len(st['attempted_days']),30);self.assertEqual(st['deferred_days'],[]);self.assertEqual(st['incomplete_days_remaining'],['2026-11-10'])
    self.assertEqual(st['state'],'PARTIAL');self.assertIn('2026-11-10',st['unavailable_reasons'])
    self.assertNotIn('securityToken',str(st))
  def test_verified_source_gap_is_ok_but_unverified_empty_day_stays_partial(self):
@@ -88,6 +88,11 @@ class RegionalTests(unittest.TestCase):
    rows=list(csv.DictReader(io.StringIO(Path(r.extra_csv_path(path)).read_text())))
    self.assertIn('2026-11-09',{x['Delivery_Date'] for x in rows if x['Market']=='HR'})
    self.assertNotIn('2026-11-10',{x['Delivery_Date'] for x in rows if x['Market']=='HR'})  # empty, never zero
+ def test_budget_expiry_reports_deferred_days(self):
+  now=dt.datetime(2026,11,24,12,tzinfo=dt.timezone.utc)
+  with tempfile.TemporaryDirectory() as tmp,patch.dict(os.environ,ENTSOE_API_TOKEN='fake'),patch.object(r.time,'sleep'),patch.object(r,'BACKFILL_SECONDS_PER_RUN',-1):
+   session=Mock();session.get.side_effect=serve();r.update_regional_prices(Path(tmp)/'p.csv',session,now)
+   st=DATASETS['price_hr'];self.assertEqual(st['state'],'PARTIAL');self.assertEqual(len(st['deferred_days']),30);self.assertEqual(st['attempted_days'],[]);self.assertIn('deferred',st['detail'])
  def test_unavailable_day_not_zero_failure_visible_saved_kept(self):
   now=dt.datetime(2026,11,24,12,tzinfo=dt.timezone.utc)
   with tempfile.TemporaryDirectory() as tmp,patch.dict(os.environ,ENTSOE_API_TOKEN='fake'),patch.object(r.time,'sleep'):
