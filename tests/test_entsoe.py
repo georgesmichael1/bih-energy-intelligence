@@ -308,3 +308,82 @@ class BackfillTests(unittest.TestCase):
             e.persist(path,parse(document('load_forecast','BA','BA'),'load_forecast','BA','BA'),START-dt.timedelta(days=40));before=path.read_text()
             e.update_entsoe(tmp,session=session,token='dummy',include_physical=False)
             self.assertEqual(ps.DATASETS['entsoe_load_forecast']['state'],'FAILED');self.assertEqual(path.read_text(),before)
+
+
+
+class ParallelFetchTests(unittest.TestCase):
+    def setUp(self): ps.DATASETS.clear()
+
+    def _session(self):
+        def get(url, params=None, **kw):
+            start = dt.datetime.strptime(params['periodStart'], '%Y%m%d%H%M').replace(tzinfo=dt.timezone.utc)
+            day = start.astimezone(e.TZ).date(); s, en = e.day_bounds(day)
+            kind = {'A65': 'load_forecast', 'A11': 'physical_flows'}.get(params['documentType'], 'hr_schedules')
+            if kind == 'load_forecast':
+                return Mock(status_code=200, content=document(kind, 'BA', 'BA', start=s, end=en))
+            a = next(k for k, v in e.AREAS.items() if v == params['out_Domain'])
+            b = next(k for k, v in e.AREAS.items() if v == params['in_Domain'])
+            return Mock(status_code=200, content=document(kind, a, b, start=s, end=en, positions=[(1, len(a + b))]))
+        session = Mock(); session.get.side_effect = get
+        return session
+
+    @staticmethod
+    def _rows(tmp, name):
+        import csv
+        rows = list(csv.DictReader(open(Path(tmp) / name)))
+        return [{k: v for k, v in r.items() if k != 'Fetched_At_UTC'} for r in rows]
+
+    @patch('entsoe_adapter.time.sleep')
+    def test_three_workers_match_sequential_output_and_status(self, _):
+        out = {}
+        for workers in (1, 3):
+            ps.DATASETS.clear()
+            with tempfile.TemporaryDirectory() as tmp:
+                session = self._session()
+                e.update_entsoe(tmp, session=session, token='dummy', include_physical=True, workers=workers)
+                names = ('entsoe_load_forecast.csv', 'entsoe_physical_flows.csv', 'entsoe_hr_schedules.csv')
+                out[workers] = ({n: self._rows(tmp, n) for n in names},
+                                {k: (v['state'], v.get('row_count'), v.get('recovered_days'), v.get('unavailable_days'))
+                                 for k, v in ps.DATASETS.items()},
+                                session.get.call_count)
+        self.assertEqual(out[1][0], out[3][0])   # identical rows in every CSV
+        self.assertEqual(out[1][1], out[3][1])   # identical per-dataset state, counts, recovered/unavailable days
+        self.assertEqual(out[1][2], out[3][2])   # same number of API requests
+        self.assertTrue(all(v[0] == 'PARTIAL' or v[0] == 'OK' for v in out[3][1].values()))
+
+    @patch('entsoe_adapter.time.sleep')
+    def test_rate_limit_stops_all_workers(self, _):
+        for code in (401, 403, 429):
+            with self.subTest(code=code), tempfile.TemporaryDirectory() as tmp:
+                ps.DATASETS.clear(); session = Mock()
+                session.get.return_value = Mock(status_code=code)
+                e.update_entsoe(tmp, DAY, session=session, token='dummy', workers=3)
+                self.assertLessEqual(session.get.call_count, 3)   # only requests already in flight
+                self.assertEqual(len(ps.DATASETS), 3)
+                self.assertTrue(all(v['state'] == 'FAILED' for v in ps.DATASETS.values()))
+                self.assertFalse(list(Path(tmp).glob('*.csv')))
+
+    def test_stop_flag_blocks_next_request_after_in_flight_failure(self):
+        calls = []
+        def get(url, params=None, **kw):
+            calls.append(params['documentType'])
+            return Mock(status_code=429)
+        session = Mock(); session.get.side_effect = get
+        with patch('entsoe_adapter.time.sleep'), tempfile.TemporaryDirectory() as tmp:
+            e.update_entsoe(tmp, DAY, session=session, token='dummy', workers=2)
+        self.assertLessEqual(len(calls), 2)
+
+    def test_pacer_spaces_requests_token_wide(self):
+        sleeps = []
+        clock = [100.0]
+        with patch('entsoe_adapter.time.monotonic', lambda: clock[0]), \
+             patch('entsoe_adapter.time.sleep', lambda s: sleeps.append(round(s, 2))):
+            p = e._Pacer(0.35)
+            for _ in range(4):
+                p.wait()
+        self.assertEqual(sleeps, [0.35, 0.7, 1.05])
+
+    def test_default_is_sequential_and_workers_capped(self):
+        import inspect
+        self.assertIsNone(inspect.signature(e.update_entsoe).parameters['workers'].default)
+        self.assertEqual(e.MAX_WORKERS, 4)
