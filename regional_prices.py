@@ -201,12 +201,12 @@ def _saved_complete_days(prior, market, days):
     return done
 
 
-MAX_BACKFILL_PER_RUN = 10
+BACKFILL_SECONDS_PER_RUN = 150  # per market (4 markets, 15 min job): about 29 single-day requests fit
 
 
 def update_regional_prices(csv_path="regional_day_ahead_prices.csv", session=None, now=None):
     """Always refresh today's auction; also recover incomplete earlier days in the 31-day local window
-    (newest first, at most MAX_BACKFILL_PER_RUN per market per run). Days save only when complete."""
+    (all of them, within a per-market time budget). Days save only when complete."""
     import os
     now = now or dt.datetime.now(dt.timezone.utc)
     if now.tzinfo is None:
@@ -234,36 +234,42 @@ def update_regional_prices(csv_path="regional_day_ahead_prices.csv", session=Non
                 older = [day - dt.timedelta(days=n) for n in range(1, 31)]
                 have = _saved_complete_days(prior, market, older)
                 all_missing = [d for d in older if d not in have]
-                missing = all_missing
-                if len(all_missing) > MAX_BACKFILL_PER_RUN:
-                    # Newest 5 always, the rest rotate by half-hour slot so days that keep failing
-                    # cannot starve older days of any attempt.
-                    head, rest = all_missing[:5], all_missing[5:]
-                    k = (now.hour * 2 + now.minute // 30) % len(rest)
-                    missing = head + (rest[k:] + rest[:k])[:MAX_BACKFILL_PER_RUN - 5]
-                recovered, unavailable, reasons = [], [], {}
+                # Every missing day is attempted, bounded by a time budget instead of a day count.
+                # Newest 5 first, then the rest rotated by half-hour slot, so a budget stop can never
+                # leave the same days unattempted run after run.
+                head, rest = all_missing[:5], all_missing[5:]
+                k = (now.hour * 2 + now.minute // 30) % len(rest) if rest else 0
+                missing = head + rest[k:] + rest[:k]
+                deadline = time.monotonic() + BACKFILL_SECONDS_PER_RUN
+                recovered, unavailable, reasons, no_data = [], [], {}, []
                 for d in missing:
+                    if time.monotonic() > deadline:
+                        break
                     try:
                         results.extend(_fetch_day_with_fallback(session, token, market, d, stamp, areas, source))
                         recovered.append(d.isoformat())
                     except (requests.RequestException, ValueError, TypeError, KeyError, AttributeError, ET.ParseError) as exc:
                         unavailable.append(d.isoformat())
                         # Only our own fixed ValueError texts are kept; request errors can carry the URL.
+                        if type(exc) is ValueError and str(exc) == 'No price series returned':
+                            no_data.append(d.isoformat())  # source answered, but published no series for that day
                         reasons[d.isoformat()] = type(exc).__name__ + (": " + str(exc)[:80] if type(exc) is ValueError else "")
                     time.sleep(1)
                 still_missing = [d for d in older if d not in have and d.isoformat() not in recovered]
-                state = "OK" if not still_missing else "PARTIAL"
+                blocking = still_missing  # an empty API answer is not proof of source absence; days stay PARTIAL until verified
+                state = "OK" if not blocking else "PARTIAL"
                 record("price_" + market.lower(), state, market=market, product="DAY_AHEAD", source=source,
                        delivery_days=[day.isoformat()], intervals=len(rows), fetched_at=stamp,
-                       recovered_days=recovered, unavailable_reasons=reasons, attempted_days=[d.isoformat() for d in missing], incomplete_days_remaining=[d.isoformat() for d in still_missing],
+                       recovered_days=recovered, source_no_data_days=no_data, unavailable_reasons=reasons, attempted_days=[d.isoformat() for d in missing], incomplete_days_remaining=[d.isoformat() for d in still_missing],
                        detail="Today's complete auction curve fetched at run time; not instant intraday"
-                              + ("" if not still_missing else "; " + str(len(still_missing)) + " earlier day(s) in the 31-day window still missing, never filled with zeros")
+                              + ("" if not blocking else "; " + str(len(blocking)) + " earlier day(s) in the 31-day window still missing, never filled with zeros")
+                              + ("" if not no_data else "; API returned no price series for " + ",".join(no_data) + " (left empty, retried every run; confirm on the TP page)")
                               + ("; HU day(s) from HUPX Labs: " + ",".join(sorted({r["Delivery_Date"] for r in results
                                   if r["Market"] == "HU" and r["Source"] == HUPX_SOURCE}))
                                  if market == "HU" and any(r["Market"] == "HU" and r["Source"] == HUPX_SOURCE for r in results) else ""),
                        resolution_note="ENTSO-E interval grid; RS hourly auction may repeat across quarter-hours",
                        last_successful_fetch_at=stamp)
-                if still_missing:
+                if blocking:
                     good.pop()
             except (requests.RequestException, ValueError, TypeError, KeyError, AttributeError, ET.ParseError) as exc:
                 record("price_" + market.lower(), "FAILED", market=market, source=source,
