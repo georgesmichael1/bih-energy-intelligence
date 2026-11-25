@@ -34,7 +34,7 @@ class RegionalTests(unittest.TestCase):
      session=Mock();session.get.side_effect=serve({'HU':0,'RS':-2,'HR':5.5,'ME':-0.01})
      rows=self.run_feed(session,day)
      today=[x for x in rows if x['Delivery_Date']==day.isoformat()]
-     self.assertEqual(len(today),count*4);self.assertEqual(DATASETS['price_hu']['state'],'PARTIAL');self.assertEqual({x['Market'] for x in today},{'HU','RS','HR','ME'});self.assertIn('not named',[x for x in today if x['Market']=='HR'][0]['Attribution']);self.assertIn('not named',[x for x in today if x['Market']=='ME'][0]['Attribution']);self.assertEqual({float(x['Price_EUR_MWh']) for x in today if x['Market']=='HR'},{5.5});self.assertEqual({float(x['Price_EUR_MWh']) for x in today if x['Market']=='ME'},{-0.01})
+     self.assertEqual(len(today),count*4);self.assertEqual(DATASETS['price_hu']['state'],'OK');self.assertEqual({x['Market'] for x in today},{'HU','RS','HR','ME'});self.assertIn('not named',[x for x in today if x['Market']=='HR'][0]['Attribution']);self.assertIn('not named',[x for x in today if x['Market']=='ME'][0]['Attribution']);self.assertEqual({float(x['Price_EUR_MWh']) for x in today if x['Market']=='HR'},{5.5});self.assertEqual({float(x['Price_EUR_MWh']) for x in today if x['Market']=='ME'},{-0.01})
      self.assertEqual({float(x['Price_EUR_MWh']) for x in today if x['Market']=='HU'},{0.0});self.assertEqual({float(x['Price_EUR_MWh']) for x in today if x['Market']=='RS'},{-2.0})
      for args,kwargs in session.get.call_args_list:
       self.assertTrue(kwargs['verify']);self.assertEqual(kwargs['params']['documentType'],'A44');self.assertEqual(kwargs['params']['contract_MarketAgreement.type'],'A01')
@@ -47,7 +47,7 @@ class RegionalTests(unittest.TestCase):
    states=[]
    for _ in range(4):
     session=Mock();session.get.side_effect=serve();r.update_regional_prices(path,session,now);states.append(DATASETS['dam']['state'])
-   self.assertEqual(states,['PARTIAL','PARTIAL','OK','OK'])
+   self.assertEqual(states,['OK','OK','OK','OK'])  # no per-run day cap: the whole window is recovered in one run
    rows=list(csv.DictReader(io.StringIO(path.read_text())))
    self.assertEqual({x['Delivery_Date'] for x in rows},{(dt.date(2026,11,24)-dt.timedelta(days=n)).isoformat() for n in range(31)})
    # Window rolls: a day later the oldest day is pruned and nothing duplicates
@@ -55,6 +55,16 @@ class RegionalTests(unittest.TestCase):
    rows=list(csv.DictReader(io.StringIO(path.read_text())))
    self.assertNotIn('2026-10-25',{x['Delivery_Date'] for x in rows})
    keys=[(x['Market'],x['Interval_Start_UTC']) for x in rows];self.assertEqual(len(keys),len(set(keys)))
+ def test_all_missing_days_attempted_in_one_run_and_failures_named(self):
+  now=dt.datetime(2026,11,24,12,tzinfo=dt.timezone.utc)
+  with tempfile.TemporaryDirectory() as tmp,patch.dict(os.environ,ENTSOE_API_TOKEN='fake'),patch.object(r.time,'sleep'):
+   path=Path(tmp)/'p.csv'
+   session=Mock();session.get.side_effect=serve(unavailable={'2026-11-10'})
+   r.update_regional_prices(path,session,now)
+   st=DATASETS['price_hr']
+   self.assertEqual(len(st['attempted_days']),30);self.assertEqual(st['incomplete_days_remaining'],['2026-11-10'])
+   self.assertEqual(st['state'],'PARTIAL');self.assertIn('2026-11-10',st['unavailable_reasons'])
+   self.assertNotIn('securityToken',str(st))
  def test_unavailable_day_not_zero_failure_visible_saved_kept(self):
   now=dt.datetime(2026,11,24,12,tzinfo=dt.timezone.utc)
   with tempfile.TemporaryDirectory() as tmp,patch.dict(os.environ,ENTSOE_API_TOKEN='fake'),patch.object(r.time,'sleep'):
