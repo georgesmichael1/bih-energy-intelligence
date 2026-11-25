@@ -218,6 +218,17 @@ def update_actuals(output_dir='.', now=None, session=None, token=None, max_backf
             except (ValueError, OSError, KeyError, TypeError) as exc:
                 record('entsoe_' + name, 'FAILED', detail='Fetch/validation/write failed: ' + type(exc).__name__, **meta)
                 continue
+            if name == 'actual_generation':
+                # Current Sarajevo day: save the points ENTSO-E has published so far (partial day).
+                # Unpublished hours stay absent, never zero. A failure here keeps yesterday's data.
+                try:
+                    _persist(path, cols, get_day(now.astimezone(TZ).date()), keyf, cutoff)
+                    meta['current_day_rows'] = 'saved'
+                except StopAPI as exc:
+                    stopped = True
+                    meta['current_day_rows'] = 'stopped: ' + str(exc)
+                except (APIError, DataError, ValueError, OSError, KeyError, TypeError) as exc:
+                    meta['current_day_rows'] = 'not available yet: ' + type(exc).__name__
             saved = _read(path, cols)
             window = [yday - dt.timedelta(days=n) for n in range(1, WINDOW_DAYS - 1)]
             test = complete if complete else (lambda rows, d: _gen_present(rows, d))
@@ -239,7 +250,7 @@ def update_actuals(output_dir='.', now=None, session=None, token=None, max_backf
             state = 'PARTIAL' if unavailable else 'OK'
             record('entsoe_' + name, state, detail=('Yesterday saved; ' + str(len(unavailable)) +
                    ' earlier day(s) unavailable or incomplete at source, gaps not zero') if unavailable
-                   else 'Complete 31-day window saved; historical day data, not live', **meta)
+                   else 'Complete 31-day window saved; current day partial as published, not live', **meta)
     finally:
         if own:
             session.close()
