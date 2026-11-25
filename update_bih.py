@@ -349,6 +349,33 @@ def day_is_complete(hist: pd.DataFrame, day: datetime.date) -> bool:
     return required_hours(day) <= set(rows["Hour"]) and not rows[NOS_VALUE_COLS].isna().any().any()
 
 
+# Source gaps confirmed on the NOS BiH page itself (date picker + Table tab). Narrow on purpose: one date, one
+# column. Any other missing hour, column or date, and any request error, still keeps the dataset PARTIAL.
+# The day is still requested every run, so a late publication is picked up and saved normally.
+NOS_VERIFIED_SOURCE_GAPS = {
+    ("2026-11-22", "Planned_Consumption_MW"): {
+        "checked_at": "2026-11-25T06:11:00+00:00",
+        "evidence": "nosbih.ba Graph consumption, Table tab, 22.11.2026: all 24 rows had Planned consumption blank "
+                    "while Planned production, Actual production and Actual consumption were filled; "
+                    "21.11.2026 and 23.11.2026 showed 24 planned-consumption values",
+        "evidence_url": "https://www.nosbih.ba/en/ees/graf-potrosnje/",
+    },
+}
+
+
+def day_gap_is_verified(hist: pd.DataFrame, day: datetime.date) -> bool:
+    """True only when every required hour is present and the ONLY blank column is a verified source gap."""
+    if not len(hist):
+        return False
+    rows = hist[hist["Date"] == day]
+    if not required_hours(day) <= set(rows["Hour"]):
+        return False
+    blank = [c for c in NOS_VALUE_COLS if rows[c].isna().any()]
+    if not blank:
+        return False
+    return all((str(day), c) in NOS_VERIFIED_SOURCE_GAPS and rows[c].isna().all() for c in blank)
+
+
 def apply_day(hist: pd.DataFrame, new: pd.DataFrame, day: datetime.date):
     """Merge one fetched day. Returns (hist, notes).
     A series with any value in the source answer is authoritative for that day, so values the source
@@ -450,7 +477,10 @@ def update_nos_history() -> dict:
         attempt_stamp if succeeded_days > 0 else _latest_fetched_at(hist)
     )
 
-    incomplete_days = [str(d) for d in window if d != today and not day_is_complete(hist, d)]
+    incomplete_days = [str(d) for d in window if d != today and not day_is_complete(hist, d)
+                       and not day_gap_is_verified(hist, d)]
+    verified_gaps = [dict(date=d, column=c, **v) for (d, c), v in NOS_VERIFIED_SOURCE_GAPS.items()
+                     if day_gap_is_verified(hist, datetime.date.fromisoformat(d))]
     dst_limited_days = [str(d) for d in window if dst_limited(d) and (len(hist) and (hist["Date"] == d).any())]
     with_actual = hist.dropna(subset=["Actual_Production_MW"]) if len(hist) else pd.DataFrame()
     latest_actual = None
@@ -490,6 +520,8 @@ def update_nos_history() -> dict:
     else:
         state = "OK"
         detail = "Historical requests completed; latest actual checked separately"
+        if verified_gaps:
+            detail += "; verified source gap(s), left blank and retried every run: " + ", ".join(g["date"] + " " + g["column"] for g in verified_gaps)
 
     record(
         "nos",
@@ -503,6 +535,7 @@ def update_nos_history() -> dict:
         error_counts=error_counts,
         retained_stale_notes=stale_days,
         incomplete_days=incomplete_days,
+        verified_source_gaps=verified_gaps,
         dst_limited_days=dst_limited_days,
         source=NOS_PAGE,
         dst_note="Legacy Date/Hour feed is not DST-safe: on 25 Oct 2026 the source returned 23 hour labels with no repeated hour, so DST-change days are never interval-complete; see dst_limited_days. ENTSO-E uses UTC",
