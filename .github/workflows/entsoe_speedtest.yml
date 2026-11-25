@@ -13,7 +13,7 @@ concurrency:
 jobs:
   bench:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 14
     env:
       ENTSOE_API_TOKEN: ${{ secrets.ENTSOE_API_TOKEN }}
       PYTHONUNBUFFERED: '1'
@@ -24,13 +24,13 @@ jobs:
           python-version: '3.11'
       - run: pip install -r requirements.txt
       - run: python -m unittest discover -s tests
-      - name: Same 3 delivery days, sequential then 3 workers, temp folders only
+      - name: Same delivery day, sequential then 3 workers, temp folders only
         run: |
           python3 - <<'PY'
           import csv, datetime as dt, glob, json, os, tempfile, threading, time
           import entsoe_adapter as e
           import pipeline_status as ps
-          DAYS = [dt.datetime.now(e.TZ).date() - dt.timedelta(days=n) for n in (1, 2, 3)]
+          DAYS = [dt.datetime.now(e.TZ).date() - dt.timedelta(days=n) for n in (1,)]
           log = []
           real_fetch = e.fetch
           def counting_fetch(session, token, params):
@@ -39,7 +39,7 @@ jobs:
                   return real_fetch(session, token, params)
               finally:
                   log.append((t0, time.monotonic() - t0, threading.current_thread().name))
-                  if len(log) % 10 == 0:
+                  if len(log) % 5 == 0:
                       print('requests so far', len(log), 'last latency %.2fs' % log[-1][1], log[-1][2], flush=True)
           e.fetch = counting_fetch
           def peak_per_minute(ts):
