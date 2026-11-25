@@ -1,0 +1,70 @@
+name: TEMP ENTSO-E speed test (no commits)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bih-daily-update
+  cancel-in-progress: false
+
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      ENTSOE_API_TOKEN: ${{ secrets.ENTSOE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install -r requirements.txt
+      - run: python -m unittest discover -s tests
+      - name: Benchmark sequential vs parallel into empty temp folders (nothing is committed)
+        run: |
+          python3 - <<'PY'
+          import csv, json, os, tempfile, time, glob
+          import entsoe_adapter as e
+          import pipeline_status as ps
+          stamps = []
+          real_fetch = e.fetch
+          def counting_fetch(session, token, params):
+              stamps.append(time.monotonic())
+              return real_fetch(session, token, params)
+          e.fetch = counting_fetch
+          def peak_per_minute(ts):
+              best = 0
+              for i, t in enumerate(ts):
+                  best = max(best, sum(1 for u in ts[i:] if u - t < 60))
+              return best
+          def rows(path):
+              if not os.path.exists(path): return []
+              out = []
+              for r in csv.DictReader(open(path, newline='', encoding='utf-8')):
+                  r.pop('Fetched_At_UTC', None)
+                  out.append(tuple(sorted(r.items())))
+              return sorted(out)
+          results = {}
+          dirs = {}
+          for workers in (1, 3):
+              stamps.clear(); ps.DATASETS.clear()
+              d = tempfile.mkdtemp(); dirs[workers] = d
+              t0 = time.monotonic()
+              e.update_entsoe(d, include_physical=False, include_capacity=True, workers=workers)
+              el = time.monotonic() - t0
+              results[workers] = dict(seconds=round(el, 1), requests=len(stamps), peak_req_per_min=peak_per_minute(stamps),
+                  states={k: (v['state'], len(v.get('recovered_days', [])), len(v.get('unavailable_days', []))) for k, v in ps.DATASETS.items()})
+              print('WORKERS', workers, json.dumps(results[workers], indent=1))
+          same = {}
+          for f in sorted(glob.glob(dirs[1] + '/*.csv')):
+              n = os.path.basename(f)
+              a, b = rows(f), rows(os.path.join(dirs[3], n))
+              repo = set(rows(n))
+              same[n] = dict(rows_seq=len(a), rows_par=len(b), identical=(a == b),
+                             seq_rows_in_repo=sum(1 for r in a if r in repo), seq_rows_not_in_repo=sum(1 for r in a if r not in repo))
+          print('COMPARISON', json.dumps(same, indent=1))
+          print('SPEEDUP', round(results[1]['seconds'] / results[3]['seconds'], 2))
+          PY
