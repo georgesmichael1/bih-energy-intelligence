@@ -57,6 +57,14 @@ class CapacityParserTests(unittest.TestCase):
         body = document('nominated_daily', 'BA', 'HR').replace(b'B08', b'A25')
         with self.assertRaises(e.DataError):
             parse(body, 'nominated_daily')
+    def test_scheduled_total_requires_total_contract(self):
+        body = document('hr_schedules', 'BA', 'ME')
+        with self.assertRaises(e.DataError):
+            parse(body, 'scheduled_total', 'BA', 'ME')
+        body = body.replace(b'contract_MarketAgreement.type>A01<',
+                            b'contract_MarketAgreement.type>A05<')
+        rows = parse(body, 'scheduled_total', 'BA', 'ME')
+        self.assertEqual(len(rows), 24)
     def test_capacity_groups_run_and_skip(self):
         import inspect
         self.assertFalse(inspect.signature(e.update_entsoe).parameters['include_capacity'].default)
