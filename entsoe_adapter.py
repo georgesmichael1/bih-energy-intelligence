@@ -1,5 +1,6 @@
 """Bounded Bosnia ENTSO-E feeds (load forecast, physical flows, HR day-ahead schedules,
-day-ahead NTC and daily total nominated capacity). No actual-load or generation publishing here.
+day-ahead NTC, daily total nominated capacity and total commercial schedules including
+intraday). No actual-load or generation publishing here.
 
 All timestamps in the CSV primary key are UTC; local ISO timestamps include the
 UTC offset, including repeated fall-back hours. Positive directional quantities
@@ -82,7 +83,8 @@ def parse_document(body, dataset, source, target, start, end, fetched_at):
                         ': ' + _safe_text(' '.join(reasons)))
     expected_type = {'load_forecast': 'A65', 'physical_flows': 'A11',
                      'hr_schedules': 'A09', 'ntc_day_ahead': 'A61',
-                     'nominated_daily': 'A26', 'scheduled_rs_me': 'A09'}[dataset]
+                     'nominated_daily': 'A26', 'scheduled_rs_me': 'A09',
+                     'scheduled_total': 'A09'}[dataset]
     if text(root, '{*}type') != expected_type:
         raise DataError('Unexpected document type')
     if dataset == 'load_forecast' and text(root, '{*}process.processType') != 'A01':
@@ -114,6 +116,11 @@ def parse_document(body, dataset, source, target, start, end, fetched_at):
         if dataset in ('hr_schedules', 'scheduled_rs_me') and \
                 text(ts, '{*}contract_MarketAgreement.type') != 'A01':
             raise DataError('Not a day-ahead/daily contract series')
+        # Total commercial schedules (12.1.F "Total"): all time horizons including
+        # intraday. ENTSO-E serves them as documentType A09 with contract type A05.
+        if dataset == 'scheduled_total' and \
+                text(ts, '{*}contract_MarketAgreement.type') != 'A05':
+            raise DataError('Not a total (all horizons) contract series')
         # NTC and nominated responses may omit the contract element; when it is
         # present it must still be the day-ahead/daily contract.
         if dataset in ('ntc_day_ahead', 'nominated_daily') and \
@@ -281,11 +288,14 @@ def update_entsoe(output_dir='.', day=None, session=None, token=None, include_ph
                             for a, b in [('BA', other), (other, 'BA')]],
         'scheduled_rs_me': [(a, b) for other in ('RS', 'ME')
                             for a, b in [('BA', other), (other, 'BA')]],
+        'scheduled_total': [(a, b) for other in ('HR', 'RS', 'ME')
+                            for a, b in [('BA', other), (other, 'BA')]],
     }
     if not include_physical:
         groups.pop('physical_flows')
     if not include_capacity:
         groups.pop('ntc_day_ahead'); groups.pop('nominated_daily'); groups.pop('scheduled_rs_me')
+        groups.pop('scheduled_total')
     token = token if token is not None else os.environ.get('ENTSOE_API_TOKEN', '').strip()
     owns_session = session is None
     session = session or make_session()
@@ -296,7 +306,8 @@ def update_entsoe(output_dir='.', day=None, session=None, token=None, include_ph
         for source, target in directions:
             parameters = {
                 'documentType': {'load_forecast': 'A65', 'physical_flows': 'A11', 'hr_schedules': 'A09',
-                                 'ntc_day_ahead': 'A61', 'nominated_daily': 'A26', 'scheduled_rs_me': 'A09'}[dataset],
+                                 'ntc_day_ahead': 'A61', 'nominated_daily': 'A26', 'scheduled_rs_me': 'A09',
+                                 'scheduled_total': 'A09'}[dataset],
                 'periodStart': d_start.strftime('%Y%m%d%H%M'),
                 'periodEnd': d_end.strftime('%Y%m%d%H%M'),
             }
@@ -306,6 +317,8 @@ def update_entsoe(output_dir='.', day=None, session=None, token=None, include_ph
                 parameters.update({'in_Domain': AREAS[target], 'out_Domain': AREAS[source]})
                 if dataset in ('hr_schedules', 'scheduled_rs_me', 'ntc_day_ahead', 'nominated_daily'):
                     parameters['contract_MarketAgreement.type'] = 'A01'
+                if dataset == 'scheduled_total':
+                    parameters['contract_MarketAgreement.type'] = 'A05'
                 if dataset == 'nominated_daily':
                     parameters['businessType'] = 'B08'
             body = fetch(session, token, parameters)
