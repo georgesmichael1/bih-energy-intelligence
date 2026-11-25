@@ -13,9 +13,10 @@ concurrency:
 jobs:
   bench:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 12
     env:
       ENTSOE_API_TOKEN: ${{ secrets.ENTSOE_API_TOKEN }}
+      PYTHONUNBUFFERED: '1'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -23,23 +24,26 @@ jobs:
           python-version: '3.11'
       - run: pip install -r requirements.txt
       - run: python -m unittest discover -s tests
-      - name: Benchmark sequential vs parallel into empty temp folders (nothing is committed)
+      - name: Same 3 delivery days, sequential then 3 workers, temp folders only
         run: |
           python3 - <<'PY'
-          import csv, json, os, tempfile, time, glob
+          import csv, datetime as dt, glob, json, os, tempfile, threading, time
           import entsoe_adapter as e
           import pipeline_status as ps
-          stamps = []
+          DAYS = [dt.datetime.now(e.TZ).date() - dt.timedelta(days=n) for n in (1, 2, 3)]
+          log = []
           real_fetch = e.fetch
           def counting_fetch(session, token, params):
-              stamps.append(time.monotonic())
-              return real_fetch(session, token, params)
+              t0 = time.monotonic()
+              try:
+                  return real_fetch(session, token, params)
+              finally:
+                  log.append((t0, time.monotonic() - t0, threading.current_thread().name))
+                  if len(log) % 10 == 0:
+                      print('requests so far', len(log), 'last latency %.2fs' % log[-1][1], log[-1][2], flush=True)
           e.fetch = counting_fetch
           def peak_per_minute(ts):
-              best = 0
-              for i, t in enumerate(ts):
-                  best = max(best, sum(1 for u in ts[i:] if u - t < 60))
-              return best
+              return max(sum(1 for u in ts[i:] if u - t < 60) for i, t in enumerate(ts)) if ts else 0
           def rows(path):
               if not os.path.exists(path): return []
               out = []
@@ -47,17 +51,20 @@ jobs:
                   r.pop('Fetched_At_UTC', None)
                   out.append(tuple(sorted(r.items())))
               return sorted(out)
-          results = {}
-          dirs = {}
+          results, dirs = {}, {}
           for workers in (1, 3):
-              stamps.clear(); ps.DATASETS.clear()
               d = tempfile.mkdtemp(); dirs[workers] = d
+              log.clear(); ps.DATASETS.clear()
+              print('START workers', workers, flush=True)
               t0 = time.monotonic()
-              e.update_entsoe(d, include_physical=False, include_capacity=True, workers=workers)
+              for day in DAYS:
+                  e.update_entsoe(d, day=day, include_physical=False, include_capacity=True, workers=workers)
               el = time.monotonic() - t0
-              results[workers] = dict(seconds=round(el, 1), requests=len(stamps), peak_req_per_min=peak_per_minute(stamps),
-                  states={k: (v['state'], len(v.get('recovered_days', [])), len(v.get('unavailable_days', []))) for k, v in ps.DATASETS.items()})
-              print('WORKERS', workers, json.dumps(results[workers], indent=1))
+              lat = sorted(x[1] for x in log)
+              results[workers] = dict(seconds=round(el, 1), requests=len(log), peak_req_per_min=peak_per_minute([x[0] for x in log]),
+                  median_latency_s=round(lat[len(lat)//2], 2), max_latency_s=round(lat[-1], 2), threads=len({x[2] for x in log}),
+                  states=sorted({v['state'] for v in ps.DATASETS.values()}), datasets=len(ps.DATASETS))
+              print('RESULT workers', workers, json.dumps(results[workers]), flush=True)
           same = {}
           for f in sorted(glob.glob(dirs[1] + '/*.csv')):
               n = os.path.basename(f)
