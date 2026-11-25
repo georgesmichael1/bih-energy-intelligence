@@ -4,6 +4,10 @@ on:
   schedule:
     - cron: '30 2 * * *'     # 02:30 UTC, after the previous Europe/Sarajevo day is complete
   workflow_dispatch:
+    inputs:
+      workers:
+        description: 'Datasets fetched in parallel (1 = sequential)'
+        default: '3'
 
 permissions:
   contents: write
@@ -39,6 +43,8 @@ jobs:
 
       # Fails the run if the token is missing, any direction fails, or nothing was recorded.
       - name: Fetch previous-day ENTSO-E data
+        env:
+          ENTSOE_WORKERS: ${{ github.event.inputs.workers || '3' }}
         run: |
           python3 - <<'PY'
           import sys
@@ -87,3 +93,4 @@ jobs:
             git pull --rebase --autostash origin main
             git push origin HEAD:main
           fi
+
