@@ -7,7 +7,7 @@ on:
     inputs:
       workers:
         description: 'Datasets fetched in parallel (1 = sequential)'
-        default: '3'
+        default: '1'
 
 permissions:
   contents: write
@@ -44,7 +44,7 @@ jobs:
       # Fails the run if the token is missing, any direction fails, or nothing was recorded.
       - name: Fetch previous-day ENTSO-E data
         env:
-          ENTSOE_WORKERS: ${{ github.event.inputs.workers || '3' }}
+          ENTSOE_WORKERS: ${{ github.event.inputs.workers || '1' }}
         run: |
           python3 - <<'PY'
           import sys
