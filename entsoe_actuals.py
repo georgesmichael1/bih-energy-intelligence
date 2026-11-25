@@ -218,6 +218,7 @@ def update_actuals(output_dir='.', now=None, session=None, token=None, max_backf
             except (ValueError, OSError, KeyError, TypeError) as exc:
                 record('entsoe_' + name, 'FAILED', detail='Fetch/validation/write failed: ' + type(exc).__name__, **meta)
                 continue
+            current_error = ''
             if name == 'actual_generation':
                 # Current Sarajevo day: save the points ENTSO-E has published so far (partial day).
                 # Unpublished hours stay absent, never zero. A failure here keeps yesterday's data.
@@ -226,9 +227,16 @@ def update_actuals(output_dir='.', now=None, session=None, token=None, max_backf
                     meta['current_day_rows'] = 'saved'
                 except StopAPI as exc:
                     stopped = True
-                    meta['current_day_rows'] = 'stopped: ' + str(exc)
-                except (APIError, DataError, ValueError, OSError, KeyError, TypeError) as exc:
-                    meta['current_day_rows'] = 'not available yet: ' + type(exc).__name__
+                    current_error = 'stopped: ' + str(exc).replace(token, '[redacted]')
+                except DataError as exc:
+                    if str(exc).startswith('API acknowledgement, code 999'):
+                        meta['current_day_rows'] = 'pending: ENTSO-E has not published current-day points yet'
+                    else:
+                        current_error = 'validation failed: ' + _safe_text(str(exc)).replace(token, '[redacted]')
+                except (APIError, ValueError, OSError, KeyError, TypeError) as exc:
+                    current_error = 'request failed: ' + type(exc).__name__
+                if current_error:
+                    meta['current_day_rows'] = 'FAILED ' + current_error
             saved = _read(path, cols)
             window = [yday - dt.timedelta(days=n) for n in range(1, WINDOW_DAYS - 1)]
             test = complete if complete else (lambda rows, d: _gen_present(rows, d))
@@ -247,9 +255,10 @@ def update_actuals(output_dir='.', now=None, session=None, token=None, max_backf
                     unavailable.append(d.isoformat())
             meta.update(recovered_days=recovered, unavailable_days=sorted(unavailable), unit='MW',
                         detail_note='Hourly as published by ENTSO-E; gaps are not zero')
-            state = 'PARTIAL' if unavailable else 'OK'
+            state = 'PARTIAL' if (unavailable or current_error) else 'OK'
             record('entsoe_' + name, state, detail=('Yesterday saved; ' + str(len(unavailable)) +
-                   ' earlier day(s) unavailable or incomplete at source, gaps not zero') if unavailable
+                   ' earlier day(s) unavailable or incomplete at source, gaps not zero' +
+                   ('; current day ' + current_error if current_error else '')) if (unavailable or current_error)
                    else 'Complete 31-day window saved; current day partial as published, not live', **meta)
     finally:
         if own:
