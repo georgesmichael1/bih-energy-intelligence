@@ -201,6 +201,18 @@ def _saved_complete_days(prior, market, days):
     return done
 
 
+# Days confirmed absent on the ENTSO-E TP page itself (rendered page said "No data found").
+# A day counts as a verified gap only while the API ALSO answers with no price series for it:
+# any other failure (HTTP error, timeout, parse error) stays PARTIAL, and if data ever appears it is
+# fetched and saved normally. Values are left empty, never zero.
+VERIFIED_SOURCE_GAPS = {
+    ('HR', '2026-11-21'): {
+        'checked_at': '2026-11-25T05:52:00+00:00',
+        'evidence': 'TP Energy Prices (TR 12.1.D), bidding zone HR 10YHR-HEP------M, 21/11/2026: "No data found."; '
+                    'same page showed day-ahead rows for 20/11/2026',
+        'evidence_url': 'https://transparency.entsoe.eu/market/energyPrices?appState=%7B%22sa%22%3A%5B%22BZN%7C10YHR-HEP------M%22%5D%2C%22st%22%3A%22BZN%22%2C%22mm%22%3Atrue%2C%22ma%22%3Afalse%2C%22sp%22%3A%22HALF%22%2C%22dt%22%3A%22TABLE%22%2C%22df%22%3A%222026-11-21%22%2C%22tz%22%3A%22CET%22%2C%22ii%22%3Anull%2C%22ps%22%3Anull%7D',
+    },
+}
 BACKFILL_SECONDS_PER_RUN = 150  # per market (4 markets, 15 min job): about 29 single-day requests fit
 
 
@@ -256,14 +268,18 @@ def update_regional_prices(csv_path="regional_day_ahead_prices.csv", session=Non
                         reasons[d.isoformat()] = type(exc).__name__ + (": " + str(exc)[:80] if type(exc) is ValueError else "")
                     time.sleep(1)
                 still_missing = [d for d in older if d not in have and d.isoformat() not in recovered]
-                blocking = still_missing  # an empty API answer is not proof of source absence; days stay PARTIAL until verified
+                # An empty API answer alone is not proof of absence: only days also verified on the TP page count.
+                verified_gaps = [d for d in no_data if (market, d) in VERIFIED_SOURCE_GAPS]
+                blocking = [d for d in still_missing if d.isoformat() not in verified_gaps]
                 state = "OK" if not blocking else "PARTIAL"
                 record("price_" + market.lower(), state, market=market, product="DAY_AHEAD", source=source,
                        delivery_days=[day.isoformat()], intervals=len(rows), fetched_at=stamp,
-                       recovered_days=recovered, source_no_data_days=no_data, unavailable_reasons=reasons, attempted_days=[d.isoformat() for d in missing], incomplete_days_remaining=[d.isoformat() for d in still_missing],
+                       recovered_days=recovered, source_no_data_days=no_data,
+                       verified_source_gaps=[dict(date=d, **VERIFIED_SOURCE_GAPS[(market, d)]) for d in verified_gaps], unavailable_reasons=reasons, attempted_days=[d.isoformat() for d in missing], incomplete_days_remaining=[d.isoformat() for d in still_missing],
                        detail="Today's complete auction curve fetched at run time; not instant intraday"
                               + ("" if not blocking else "; " + str(len(blocking)) + " earlier day(s) in the 31-day window still missing, never filled with zeros")
-                              + ("" if not no_data else "; API returned no price series for " + ",".join(no_data) + " (left empty, retried every run; confirm on the TP page)")
+                              + ("" if not verified_gaps else "; verified source gap(s), left empty and retried every run: " + ",".join(verified_gaps))
+                              + ("" if not [d for d in no_data if d not in verified_gaps] else "; API returned no price series for " + ",".join(d for d in no_data if d not in verified_gaps) + " (not yet verified on the TP page)")
                               + ("; HU day(s) from HUPX Labs: " + ",".join(sorted({r["Delivery_Date"] for r in results
                                   if r["Market"] == "HU" and r["Source"] == HUPX_SOURCE}))
                                  if market == "HU" and any(r["Market"] == "HU" and r["Source"] == HUPX_SOURCE for r in results) else ""),
