@@ -54,12 +54,16 @@ jobs:
         env:
           ENTSOE_API_TOKEN: ${{ secrets.ENTSOE_API_TOKEN }}
 
+      # NOS BiH 15-minute imbalance prices (public Excel files, no token). A failure turns the run red.
+      - name: Fetch NOS BiH 15-minute imbalance prices
+        run: python3 imbalance_feed.py
+
       # Good data is saved first, even if a later check fails.
       - name: Commit and push updated files
         run: |
           git config user.name "BiH Energy Auto-Updater"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          for f in bih_data.csv Generation_Monthly.csv change_log.csv status.json nos_hourly.csv flows_snapshots.csv regional_day_ahead_prices.csv regional_day_ahead_prices_hr_me.csv balancing_prices.csv current_gdp.csv; do
+          for f in bih_data.csv Generation_Monthly.csv change_log.csv status.json nos_hourly.csv flows_snapshots.csv regional_day_ahead_prices.csv regional_day_ahead_prices_hr_me.csv balancing_prices.csv current_gdp.csv nos_imbalance_15min.csv; do
             [ -f "$f" ] && git add "$f"
           done
           if git diff --staged --quiet; then
