@@ -1,8 +1,6 @@
 name: BiH Energy Daily Auto-Update
 
 on:
-  schedule:
-    - cron: '*/30 * * * *'   # every 30 minutes, UTC
   workflow_dispatch:
 
 permissions:
