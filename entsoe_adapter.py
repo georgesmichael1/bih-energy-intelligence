@@ -320,6 +320,10 @@ def update_entsoe(output_dir='.', day=None, session=None, token=None, include_ph
     if not include_capacity:
         groups.pop('ntc_day_ahead'); groups.pop('nominated_daily'); groups.pop('scheduled_rs_me')
         groups.pop('scheduled_total')
+    only = os.environ.get('ENTSOE_DATASETS', '').strip()   # optional: fetch only these datasets (parallel workflow legs)
+    if only:
+        keep = {x.strip() for x in only.split(',') if x.strip()}
+        groups = {k: v for k, v in groups.items() if k in keep}
     token = token if token is not None else os.environ.get('ENTSOE_API_TOKEN', '').strip()
     if workers is None:
         workers = int(os.environ.get('ENTSOE_WORKERS', '1') or 1)
@@ -441,5 +445,4 @@ def update_entsoe(output_dir='.', day=None, session=None, token=None, include_ph
             extra.close()
         if owns_session:
             session.close()
-
 
