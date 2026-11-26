@@ -71,7 +71,9 @@ def _safe_text(value):
     # This stops URLs, XML and anything else from reaching the log.
     return re.sub(r"[^A-Za-z0-9 .,:()\-]", '', value).strip()[:150]
 
-def parse_document(body, dataset, source, target, start, end, fetched_at):
+def parse_document(body, dataset, source, target, start, end, fetched_at, partial_until=None):
+    # partial_until (any non-None value): same-day mode. Keep the leading hours the source actually carries;
+    # hours it does not have yet stay absent (never zero, never filled).
     if b'<!DOCTYPE' in body.upper() or b'<!ENTITY' in body.upper():
         raise DataError('XML declarations not supported')
     try:
@@ -160,6 +162,8 @@ def parse_document(body, dataset, source, target, start, end, fetched_at):
                 current = points[position]
             elif curve == 'A01':
                 current = None
+            if partial_until is not None and current is None:
+                break   # source has no value from here on: leave the rest empty
             left = pstart + step * (position - 1)
             right = left + step
             if left < start or right > end:
@@ -177,7 +181,10 @@ def parse_document(body, dataset, source, target, start, end, fetched_at):
                 'Fetched_At_UTC': fetched_at,
             }
     rows = [result[key] for key in sorted(result)]
-    if (not rows or instant(rows[0]['Interval_Start_UTC']) != start or
+    if partial_until is not None:
+        if not rows or instant(rows[0]['Interval_Start_UTC']) != start:
+            raise DataError('No data yet for the first hour of the day')
+    elif (not rows or instant(rows[0]['Interval_Start_UTC']) != start or
             instant(rows[-1]['Interval_End_UTC']) != end):
         raise DataError('Incomplete requested window')
     for previous, following in zip(rows, rows[1:]):
@@ -341,7 +348,7 @@ def update_entsoe(output_dir='.', day=None, session=None, token=None, include_ph
             local.s = make_session()
             extra_sessions.append(local.s)
         return local.s
-    def fetch_day(dataset, directions, target_day):
+    def fetch_day(dataset, directions, target_day, partial_until=None):
         d_start, d_end = day_bounds(target_day)
         rows = []
         for source, target in directions:
@@ -370,7 +377,7 @@ def update_entsoe(output_dir='.', day=None, session=None, token=None, include_ph
             except StopAPI:
                 stop.set()
                 raise
-            rows.extend(parse_document(body, dataset, source, target, d_start, d_end, utc_now()))
+            rows.extend(parse_document(body, dataset, source, target, d_start, d_end, utc_now(), partial_until))
             time.sleep(1)
         return rows
     def process(dataset, directions):
@@ -405,6 +412,22 @@ def update_entsoe(output_dir='.', day=None, session=None, token=None, include_ph
             # Generic errors may echo input text, so only the type name is recorded.
             record(name, 'FAILED', detail='Fetch/validation/write failed: ' + type(exc).__name__, **meta)
             return
+        # Same-day fetch (nominated capacity and total scheduled exchanges only): save the hours the
+        # source already has for today. Missing hours stay empty. A failure here never fails the dataset.
+        today_note = {}
+        if auto and os.environ.get('ENTSOE_TODAY', '').strip() == '1' and dataset in ('nominated_daily', 'scheduled_total'):
+            today = day + dt.timedelta(days=1)
+            try:
+                trows = fetch_day(dataset, directions, today, partial_until=dt.datetime.now(UTC))
+                persist(path, trows, cutoff)
+                today_note = {'today_local_day': today.isoformat(), 'today_rows': len(trows),
+                              'today_last_interval_start_local': max(r['Interval_Start_Local'] for r in trows)}
+            except StopAPI:
+                stop.set()
+            except (APIError, DataError, ValueError, OSError, KeyError, TypeError) as exc:
+                today_note = {'today_local_day': today.isoformat(), 'today_rows': 0,
+                              'today_detail': 'no rows saved: ' + (str(exc).replace(token, '[redacted]') if isinstance(exc, (APIError, DataError)) else type(exc).__name__)}
+        meta.update(today_note)
         recovered, unavailable = [], []
         began = time.monotonic()
         for older in backfill:
@@ -445,4 +468,3 @@ def update_entsoe(output_dir='.', day=None, session=None, token=None, include_ph
             extra.close()
         if owns_session:
             session.close()
-
