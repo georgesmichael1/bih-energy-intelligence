@@ -471,7 +471,9 @@ class NosWindowIntegrityTests(unittest.TestCase):
         gap2 = gap.copy(); gap2.loc[gap2["Hour"] == 5, "Actual_Production_MW"] = float("nan")
         self.assertFalse(u.day_gap_is_verified(gap2, day))  # another blank value is not covered
         other = datetime.date(2026, 11, 21); g3 = _day_frame(other); g3["Planned_Consumption_MW"] = float("nan")
-        self.assertFalse(u.day_gap_is_verified(g3, other))  # other date is not covered
+        self.assertTrue(u.day_gap_is_verified(g3, other))  # rule: fully blank planned consumption on any past day is a note
+        g4 = _day_frame(other); g4["Actual_Production_MW"] = float("nan")
+        self.assertFalse(u.day_gap_is_verified(g4, other))  # any other blank column is not covered
         part = gap[gap["Hour"] <= 20]
         self.assertFalse(u.day_gap_is_verified(part, day))  # missing hours are not covered
         zero = _day_frame(day, value=0.0)
