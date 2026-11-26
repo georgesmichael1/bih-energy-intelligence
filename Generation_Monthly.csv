@@ -19,3 +19,4 @@ Year,Month,Gross_GWh,Hydro_pct,Thermal_pct,SolarWind_pct,Source,Notes
 2026,6,1065,29.7,60.2,10.1,BHAS ENE 01 2026 06 (https://bhas.gov.ba/data/Publikacije/Saopstenja/2026/ENE_01_2026_06_1_BS.pdf),
 2026,7,1118,28.0,60.7,11.3,BHAS ENE 01 2026 07 (https://bhas.gov.ba/data/Publikacije/Saopstenja/2026/ENE_01_2026_07_1_BS.pdf),
 2026,8,1090,27.9,62.1,10.0,BHAS ENE 01 2026 08 (https://bhas.gov.ba/data/Publikacije/Saopstenja/2026/ENE_01_2026_08_1_BS.pdf),
+2026,9,1098,19.0,70.3,10.7,BHAS ENE 01 2026 09 (https://bhas.gov.ba/data/Publikacije/Saopstenja/2026/ENE_01_2026_09_1_BS.pdf),
