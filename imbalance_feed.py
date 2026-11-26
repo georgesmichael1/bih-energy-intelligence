@@ -17,7 +17,7 @@ from pipeline_status import atomic_text, record
 BASE = 'https://www.nosbih.ba/files/balansno/cijena/'
 PAGE = 'https://www.nosbih.ba/en/trziste/balansno-trziste/cijene-debalansa/'
 CSV_PATH = 'nos_imbalance_15min.csv'
-START_DATE = dt.date(2026, 9, 1)
+START_DATE = dt.date(2025, 1, 1)
 PEG = 1.95583
 RECHECK_DAYS = 4
 COLUMNS = ['Date', 'Seq', 'Start', 'End', 'aFRR_Up_MWh', 'aFRR_Down_MWh', 'mFRR_Up_MWh',
