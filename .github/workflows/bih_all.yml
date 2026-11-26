@@ -67,7 +67,7 @@ jobs:
         run: |
           git config user.name "BiH Energy Auto-Updater"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          for f in bih_data.csv Generation_Monthly.csv change_log.csv status.json nos_hourly.csv flows_snapshots.csv regional_day_ahead_prices.csv regional_day_ahead_prices_hr_me.csv balancing_prices.csv current_gdp.csv nos_imbalance_15min.csv nos_imbalance_hourly.csv nos_reserve_providers.csv nos_balance_register.csv nos_generation_plan.csv; do
+          for f in bih_data.csv Generation_Monthly.csv change_log.csv status.json nos_hourly.csv flows_snapshots.csv regional_day_ahead_prices.csv regional_day_ahead_prices_hr_me.csv balancing_prices.csv current_gdp.csv nos_imbalance_15min.csv nos_imbalance_hourly.csv nos_reserve_providers.csv nos_balance_register.csv nos_generation_plan.csv balancing_prices_monthly.csv; do
             [ -f "$f" ] && git add "$f"
           done
           if git diff --staged --quiet; then
