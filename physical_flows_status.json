@@ -1,12 +1,12 @@
 {
   "state": "OK",
-  "checked_at": "2026-11-26T12:29:47+00:00",
+  "checked_at": "2026-11-26T12:52:47+00:00",
   "timezone": "Europe/Sarajevo",
   "requested_first_day": "2026-10-27",
   "requested_last_day": "2026-11-26",
   "requested_delivery_days": 31,
   "unit": "MW",
-  "row_count": 4394,
+  "row_count": 4398,
   "historical_incomplete_pairs": [],
   "request_failures": [],
   "coverage": [
@@ -1287,30 +1287,30 @@
     {
       "day": "2026-11-26",
       "direction": "BA>ME",
-      "rows": 12,
+      "rows": 13,
       "complete": false,
-      "latest_end_utc": "2026-11-26T11:00:00Z"
+      "latest_end_utc": "2026-11-26T12:00:00Z"
     },
     {
       "day": "2026-11-26",
       "direction": "ME>BA",
-      "rows": 12,
+      "rows": 13,
       "complete": false,
-      "latest_end_utc": "2026-11-26T11:00:00Z"
+      "latest_end_utc": "2026-11-26T12:00:00Z"
     },
     {
       "day": "2026-11-26",
       "direction": "BA>RS",
-      "rows": 12,
+      "rows": 13,
       "complete": false,
-      "latest_end_utc": "2026-11-26T11:00:00Z"
+      "latest_end_utc": "2026-11-26T12:00:00Z"
     },
     {
       "day": "2026-11-26",
       "direction": "RS>BA",
-      "rows": 12,
+      "rows": 13,
       "complete": false,
-      "latest_end_utc": "2026-11-26T11:00:00Z"
+      "latest_end_utc": "2026-11-26T12:00:00Z"
     }
   ],
   "note": "Raw directional measurements. Today contains published completed intervals only. Net export = BA outbound minus inbound; match exact UTC interval and resolution. Missing pairs are gaps, never zero."
