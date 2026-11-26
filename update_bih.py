@@ -360,6 +360,11 @@ NOS_VERIFIED_SOURCE_GAPS = {
                     "21.11.2026 and 23.11.2026 showed 24 planned-consumption values",
         "evidence_url": "https://www.nosbih.ba/en/ees/graf-potrosnje/",
     },
+    ("2026-11-25", "Planned_Consumption_MW"): {
+        "checked_at": "2026-11-26T09:28:00+00:00",
+        "evidence": "nosbih.ba admin-ajax production answer for 25.11.2026: all 24 rows had the planned-consumption cell empty while planned production, actual production and actual consumption were filled; 24.11.2026 had 24 planned-consumption values",
+        "evidence_url": "https://www.nosbih.ba/en/ees/graf-potrosnje/",
+    },
 }
 
 
