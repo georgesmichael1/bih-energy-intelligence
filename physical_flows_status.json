@@ -1,12 +1,12 @@
 {
   "state": "OK",
-  "checked_at": "2026-11-26T10:10:26+00:00",
+  "checked_at": "2026-11-26T10:37:19+00:00",
   "timezone": "Europe/Sarajevo",
   "requested_first_day": "2026-10-27",
   "requested_last_day": "2026-11-26",
   "requested_delivery_days": 31,
   "unit": "MW",
-  "row_count": 4382,
+  "row_count": 4384,
   "historical_incomplete_pairs": [],
   "request_failures": [],
   "coverage": [
@@ -1287,16 +1287,16 @@
     {
       "day": "2026-11-26",
       "direction": "BA>ME",
-      "rows": 10,
+      "rows": 11,
       "complete": false,
-      "latest_end_utc": "2026-11-26T09:00:00Z"
+      "latest_end_utc": "2026-11-26T10:00:00Z"
     },
     {
       "day": "2026-11-26",
       "direction": "ME>BA",
-      "rows": 10,
+      "rows": 11,
       "complete": false,
-      "latest_end_utc": "2026-11-26T09:00:00Z"
+      "latest_end_utc": "2026-11-26T10:00:00Z"
     },
     {
       "day": "2026-11-26",
