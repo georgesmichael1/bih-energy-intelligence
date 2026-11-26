@@ -189,7 +189,7 @@ def parse_document(body, dataset, source, target, start, end, fetched_at):
 def make_session():
     session = requests.Session()
     session.mount('https://', HTTPAdapter(max_retries=Retry(
-        total=2, backoff_factor=1, status_forcelist=[500, 502, 503, 504],
+        total=3, backoff_factor=2, status_forcelist=[500, 502, 503, 504, 599],
         allowed_methods=['GET'], raise_on_status=False)))
     return session
 
@@ -441,4 +441,5 @@ def update_entsoe(output_dir='.', day=None, session=None, token=None, include_ph
             extra.close()
         if owns_session:
             session.close()
+
 
