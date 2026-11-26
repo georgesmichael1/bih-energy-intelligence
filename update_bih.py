@@ -368,6 +368,11 @@ NOS_VERIFIED_SOURCE_GAPS = {
 }
 
 
+# Rule: a past day whose planned-consumption column is blank in EVERY hour (all hours present, all other series filled)
+# is a source gap and is reported as a note, not a failure. Values stay empty, never zero; the day is still requested every run.
+NOS_AUTO_GAP_COL = "Planned_Consumption_MW"
+
+
 def day_gap_is_verified(hist: pd.DataFrame, day: datetime.date) -> bool:
     """True only when every required hour is present and the ONLY blank column is a verified source gap."""
     if not len(hist):
@@ -378,7 +383,7 @@ def day_gap_is_verified(hist: pd.DataFrame, day: datetime.date) -> bool:
     blank = [c for c in NOS_VALUE_COLS if rows[c].isna().any()]
     if not blank:
         return False
-    return all((str(day), c) in NOS_VERIFIED_SOURCE_GAPS and rows[c].isna().all() for c in blank)
+    return all(rows[c].isna().all() and (c == NOS_AUTO_GAP_COL or (str(day), c) in NOS_VERIFIED_SOURCE_GAPS) for c in blank)
 
 
 def apply_day(hist: pd.DataFrame, new: pd.DataFrame, day: datetime.date):
@@ -484,8 +489,9 @@ def update_nos_history() -> dict:
 
     incomplete_days = [str(d) for d in window if d != today and not day_is_complete(hist, d)
                        and not day_gap_is_verified(hist, d)]
-    verified_gaps = [dict(date=d, column=c, **v) for (d, c), v in NOS_VERIFIED_SOURCE_GAPS.items()
-                     if day_gap_is_verified(hist, datetime.date.fromisoformat(d))]
+    verified_gaps = [dict(date=str(d), column=c, **NOS_VERIFIED_SOURCE_GAPS.get((str(d), c), {"evidence": "rule: planned consumption blank in every hour of a past day, reported as a note, retried every run"}))
+                     for d in window if d != today and day_gap_is_verified(hist, d)
+                     for c in NOS_VALUE_COLS if hist.loc[hist["Date"] == d, c].isna().all()]
     dst_limited_days = [str(d) for d in window if dst_limited(d) and (len(hist) and (hist["Date"] == d).any())]
     with_actual = hist.dropna(subset=["Actual_Production_MW"]) if len(hist) else pd.DataFrame()
     latest_actual = None
