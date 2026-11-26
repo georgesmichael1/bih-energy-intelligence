@@ -1,0 +1,228 @@
+name: BiH All Updates (3 jobs in parallel)
+
+# One workflow, three jobs that run side by side. Each schedule runs only its own job,
+# so the timings are the same as before: daily update every 30 min, ENTSO-E daily 02:30 UTC,
+# physical flows daily 03:17 UTC. A manual run starts all three jobs.
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+    - cron: '30 2 * * *'
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+    inputs:
+      workers:
+        description: 'ENTSO-E datasets fetched in parallel (1 = sequential)'
+        default: '3'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: bih-all-${{ github.event.schedule || github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  update-bih-master-csv:
+    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '*/30 * * * *'
+    runs-on: ubuntu-latest
+    env:
+      SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run offline tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Run BiH updater
+        run: |
+          python3 update_bih.py
+          python3 regional_prices.py
+          python3 current_gdp.py
+        env:
+          ENTSOE_API_TOKEN: ${{ secrets.ENTSOE_API_TOKEN }}
+
+      # Good data is saved first, even if a later check fails.
+      - name: Commit and push updated files
+        run: |
+          git config user.name "BiH Energy Auto-Updater"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          for f in bih_data.csv Generation_Monthly.csv change_log.csv status.json nos_hourly.csv flows_snapshots.csv regional_day_ahead_prices.csv regional_day_ahead_prices_hr_me.csv balancing_prices.csv current_gdp.csv; do
+            [ -f "$f" ] && git add "$f"
+          done
+          if git diff --staged --quiet; then
+            echo "No data changes this run."
+          else
+            git commit -m "chore(data): auto-update $(date -u +'%Y-%m-%d %H:%M')"
+            pushed=0
+            for attempt in 1 2 3 4 5 6; do
+              if git pull --rebase --autostash origin main && git push origin HEAD:main; then pushed=1; break; fi
+              echo "Push attempt $attempt failed, retrying"; sleep $((attempt * 4))
+            done
+            [ "$pushed" = 1 ]
+          fi
+
+      # Turns NOS failures and dataset failures into a red run.
+      - name: Fail the run if NOS or any dataset failed
+        run: |
+          python3 - <<'PY'
+          import json, sys
+          from pipeline_status import problems
+          with open("status.json", encoding="utf-8") as f:
+              status = json.load(f)
+          for name, item in status.get("dataset_details", {}).items():
+              if item["state"] == "STATIC_REFERENCE":
+                  print(f"::warning::{name}: historical typed-in reference, not freshly verified")
+          issues = problems(status)
+          for issue in issues:
+              print(f"::error::{issue}")
+          sys.exit(1 if issues else 0)
+          PY
+
+      - name: Send failure alert email
+        # Re-enable only after reviewing stricter failure states and recipients.
+        if: failure() && vars.ENABLE_FAILURE_EMAIL == 'true' && env.SMTP_SERVER != ''
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: ${{ secrets.SMTP_SERVER }}
+          server_port: ${{ secrets.SMTP_PORT }}
+          username: ${{ secrets.SMTP_USERNAME }}
+          password: ${{ secrets.SMTP_PASSWORD }}
+          subject: "[ALERT] BiH Energy auto-update failed"
+          to: "george.michael@elsewedy.com"
+          from: "BiH Energy Auto-Updater <george.michael@elsewedy.com>"
+          body: |
+            The BiH Energy update failed.
+            Repository: ${{ github.repository }}
+            Run URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+  entsoe-daily:
+    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '30 2 * * *'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      ENTSOE_API_TOKEN: ${{ secrets.ENTSOE_API_TOKEN }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run offline tests
+        run: python -m unittest discover -s tests -v
+
+      # Fails the run if the token is missing, any direction fails, or nothing was recorded.
+      - name: Fetch previous-day ENTSO-E data
+        env:
+          ENTSOE_WORKERS: ${{ github.event.inputs.workers || '3' }}
+        run: |
+          python3 - <<'PY'
+          import sys
+          from entsoe_adapter import update_entsoe
+          from pipeline_status import DATASETS
+          update_entsoe(include_physical=False, include_capacity=True)
+          names = [k for k in DATASETS if k.startswith("entsoe_")]
+          if not names:
+              print("::error::No ENTSO-E dataset state was recorded")
+              sys.exit(1)
+          bad = {k: DATASETS[k] for k in names if DATASETS[k]["state"] != "OK"}
+          for k, v in bad.items():
+              print(f"::error::{k}: {v['state']} {v['detail']}")
+          sys.exit(1 if bad else 0)
+          PY
+
+      - name: Fetch actual load and generation per type
+        if: success() || failure()
+        run: |
+          python3 - <<'PY'
+          import sys
+          from entsoe_actuals import update_actuals
+          from pipeline_status import DATASETS
+          update_actuals()
+          names = ["entsoe_actual_load", "entsoe_actual_generation"]
+          bad = {k: DATASETS.get(k, {"state": "MISSING", "detail": ""}) for k in names if DATASETS.get(k, {}).get("state") != "OK"}
+          for k, v in bad.items():
+              print(f"::error::{k}: {v['state']} {v['detail']}")
+          sys.exit(1 if bad else 0)
+          PY
+
+      # Only load and HR schedule CSVs (physical flows have their own rolling writer) are committed here. status.json is owned by the 30-minute job.
+      # Also runs after a partial failure so valid recovered days are saved; the run still ends red.
+      - name: Commit and push ENTSO-E CSVs
+        if: success() || failure()
+        run: |
+          git config user.name "BiH Energy Auto-Updater"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          for f in entsoe_load_forecast.csv entsoe_hr_schedules.csv entsoe_scheduled_rs_me.csv entsoe_scheduled_total.csv entsoe_ntc_day_ahead.csv entsoe_nominated_daily.csv entsoe_actual_load.csv entsoe_actual_generation.csv; do
+            [ -f "$f" ] && git add "$f"
+          done
+          if git diff --staged --quiet; then
+            echo "No ENTSO-E changes this run."
+          else
+            git commit -m "chore(entsoe): daily previous-day update $(date -u +'%Y-%m-%d %H:%M')"
+            pushed=0
+            for attempt in 1 2 3 4 5 6; do
+              if git pull --rebase --autostash origin main && git push origin HEAD:main; then pushed=1; break; fi
+              echo "Push attempt $attempt failed, retrying"; sleep $((attempt * 4))
+            done
+            [ "$pushed" = 1 ]
+          fi
+
+  physical-flows:
+    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '17 3 * * *'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      ENTSOE_API_TOKEN: ${{ secrets.ENTSOE_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - run: pip install -r requirements.txt
+      - name: Offline tests
+        run: python -m unittest discover -s tests -v
+      - name: Fetch today and previous30delivery days
+        id: fetch
+        continue-on-error: true
+        run: python physical_flow_history.py
+      - name: Save valid intervals and coverage even if incomplete
+        run: |
+          git config user.name "BiH Energy Auto-Updater"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add entsoe_physical_flows.csv physical_flows_status.json
+          if ! git diff --staged --quiet; then
+            git commit -m "chore(flows): refresh31delivery days"
+            pushed=0
+            for attempt in 1 2 3 4 5 6; do
+              if git pull --rebase --autostash origin main && git push origin HEAD:main; then pushed=1; break; fi
+              echo "Push attempt $attempt failed, retrying"; sleep $((attempt * 4))
+            done
+            [ "$pushed" = 1 ]
+          fi
+      - name: Coverage quality gate
+        if: steps.fetch.outcome != 'success'
+        run: |
+          echo "::error::Physical flow coverage incomplete. See physical_flows_status.json; valid intervals retained."
+          exit 1
