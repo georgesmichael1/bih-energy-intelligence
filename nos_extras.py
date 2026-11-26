@@ -440,7 +440,136 @@ def update_plan(get, path=PLAN_PATH, installed_path=INSTALLED_PATH):
         return None
 
 
-NAMES = ('nos_imbalance_hourly', 'nos_reserve_providers', 'nos_balance_register', 'nos_generation_plan')
+NAMES = ('nos_imbalance_hourly', 'nos_reserve_providers', 'nos_balance_register', 'nos_generation_plan', 'balancing_prices_monthly')
+
+
+# ---------------------------------------------------------------- 5. monthly price per product (NOS monthly reports)
+MONTHLY_PATH = 'balancing_prices_monthly.csv'
+MONTHLY_COLUMNS = ['Period', 'Key', 'Energy_MWh', 'Cost_KM', 'Avg_Price_EUR_MWh', 'Extreme_Price_EUR_MWh',
+                   'Avg_Price_KM_MWh', 'Extreme_Price_KM_MWh', 'Note', 'Source']
+MONTHLY_FIRST = '2022-01'
+PEG = 1.95583
+M_EN = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september',
+        'october', 'november', 'december']
+M_BS = ['januar', 'februar', 'mart', 'april', 'maj', 'juni', 'juli', 'august', 'septembar',
+        'oktobar', 'novembar', 'decembar']
+M_LABELS = {'fcp up': 'FCR_UP', 'fcp down': 'FCR_DOWN', 'fcr up': 'FCR_UP', 'fcr down': 'FCR_DOWN',
+            'fcr nagore': 'FCR_UP', 'fcr nadole': 'FCR_DOWN', 'afrr up': 'AFRR_UP', 'afrr down': 'AFRR_DOWN',
+            'afrr nagore': 'AFRR_UP', 'afrr nadole': 'AFRR_DOWN', 'mfrr up': 'MFRR_UP', 'mfrr down': 'MFRR_DOWN',
+            'mfrr nagore': 'MFRR_UP', 'mfrr nadole': 'MFRR_DOWN', 'total up': 'TOTAL_UP', 'total down': 'TOTAL_DOWN',
+            'ukupno nagore': 'TOTAL_UP', 'ukupno nadole': 'TOTAL_DOWN', 'shortage': 'IMBALANCE_SHORTAGE',
+            'deficit': 'IMBALANCE_SHORTAGE', 'manjak': 'IMBALANCE_SHORTAGE', 'surplus': 'IMBALANCE_SURPLUS',
+            'vi\u0161ak': 'IMBALANCE_SURPLUS', 'visak': 'IMBALANCE_SURPLUS'}
+M_IMB = ('IMBALANCE_SHORTAGE', 'IMBALANCE_SURPLUS')
+M_NEED = ('AFRR_UP', 'AFRR_DOWN', 'MFRR_UP', 'MFRR_DOWN', 'TOTAL_UP', 'TOTAL_DOWN') + M_IMB
+
+
+def m_num(tok):
+    if not re.fullmatch(r'-?\d[\d.]*(?:,\d+)?', tok):
+        raise ValueError('Unexpected number format')
+    return float(tok.replace('.', '').replace(',', '.'))
+
+
+def parse_monthly_prices(text, period, source):
+    """One NOS monthly balancing report -> CSV rows. Raises when the layout is not recognised.
+    Price cells stay empty when the report shows no activation (energy 0) or no price."""
+    year, month = map(int, period.split('-'))
+    flat = re.sub(r'\s+', ' ', text).lower()
+    flat2 = flat.replace(' ', '')
+    if not (f'balancing market report - {M_EN[month - 1]} {year}' in flat
+            or (f'{M_BS[month - 1]}{year}' in flat2 and 'izvje' in flat2)):
+        raise ValueError('Report title does not match the period')
+    if 'km/mwh' not in flat2:
+        raise ValueError('Price unit KM/MWh not found')
+    found = {}
+    for line in text.splitlines():
+        m = re.match(r'^([A-Za-z\u010d\u0107\u0161\u017e\u0111 ]+?)\s*((?:-?\d[\d.]*(?:,\d+)?\s*)*)$', line.strip())
+        if not m:
+            continue
+        key = M_LABELS.get(re.sub(r'\s+', ' ', m[1]).strip().lower())
+        if not key:
+            continue
+        if key in found:
+            raise ValueError('Duplicate row ' + key)
+        found[key] = [m_num(t) for t in m[2].split()]
+    missing = [k for k in M_NEED if k not in found]
+    if missing:
+        raise ValueError('Missing rows: ' + ','.join(missing))
+    rows = []
+    for key, v in found.items():
+        if key in M_IMB:
+            if len(v) != 4:
+                raise ValueError('Unexpected imbalance row')
+            energy, cost, avg, ext = v[0], None, v[2], v[3]
+        else:
+            if len(v) > 4:
+                raise ValueError('Unexpected product row')
+            v = v + [None] * (4 - len(v))
+            energy, cost, avg, ext = v
+        note = ''
+        if energy is not None and energy == 0:
+            avg = ext = None
+        elif avg is not None and cost is not None and not key.startswith(('FCR', 'TOTAL')) \
+                and abs(cost - energy * avg) > abs(avg) + energy * .02 + 2:
+            note = 'Published energy, cost and average price do not agree'
+        rows.append({'Period': period, 'Key': key, 'Energy_MWh': energy, 'Cost_KM': cost,
+                     'Avg_Price_EUR_MWh': None if avg is None else round(avg / PEG, 4),
+                     'Extreme_Price_EUR_MWh': None if ext is None else round(ext / PEG, 4),
+                     'Avg_Price_KM_MWh': avg, 'Extreme_Price_KM_MWh': ext, 'Note': note, 'Source': source})
+    return rows
+
+
+def update_monthly_prices(get, path=MONTHLY_PATH, today=None):
+    """Price per product and month from every NOS monthly report since 2022-01 (reports already saved are not fetched again).
+    A month whose layout is not recognised is left out and named in the status detail, never estimated."""
+    import io as _io
+    from pipeline_status import record
+    from bs4 import BeautifulSoup
+    import pdfplumber
+    today = today or dt.datetime.now(dt.timezone.utc).date()
+    this_month = f'{today.year:04}-{today.month:02}'
+    try:
+        links = {}
+        for a in BeautifulSoup(get(BAL_INDEX).text, 'html.parser').find_all('a', href=True):
+            m = re.search(r'/mjeseci/(\d{4})(\d{2})-en-balansno-trziste-izvjestaj\.pdf$', a['href'])
+            if m:
+                h = a['href']
+                period = f'{m[1]}-{m[2]}'
+                if MONTHLY_FIRST <= period < this_month:
+                    links[period] = BASE + h if h.startswith('/') else h
+        if not links:
+            raise ValueError('No monthly report links found')
+        saved = []
+        if Path(path).exists():
+            saved = list(csv.DictReader(open(path, encoding='utf-8')))
+        have = {r['Period'] for r in saved}
+        rows = [r for r in saved if r['Period'] in links]
+        skipped = []
+        for period in sorted(links):
+            if period in have:
+                continue
+            try:
+                raw = get(links[period]).content
+                if not raw.startswith(b'%PDF'):
+                    raise ValueError('not a PDF')
+                with pdfplumber.open(_io.BytesIO(raw)) as pdf:
+                    text = '\n'.join(pg.extract_text() or '' for pg in pdf.pages)
+                rows += parse_monthly_prices(text, period, links[period])
+            except Exception as exc:
+                skipped.append(period + ' (' + str(exc)[:40] + ')')
+        if not rows:
+            raise ValueError('No monthly price rows')
+        rows.sort(key=lambda r: (r['Period'], r['Key']))
+        save_csv(path, MONTHLY_COLUMNS, rows)
+        periods = sorted({r['Period'] for r in rows})
+        record('balancing_prices_monthly', 'OK',
+               detail='Average and extreme price per product and month, NOS monthly reports (KM/MWh, EUR at 1.95583). Months not listed are not published or not readable.'
+                      + (' Left out: ' + ', '.join(skipped) if skipped else ''),
+               first_period=periods[0], latest_period=periods[-1], months=len(periods), source=BAL_INDEX)
+        return rows
+    except Exception as exc:
+        record('balancing_prices_monthly', 'FAILED', detail='Saved data retained; ' + type(exc).__name__ + ': ' + str(exc), source=BAL_INDEX)
+        return None
 
 
 def main():
@@ -474,6 +603,7 @@ def main():
     update_providers(get)
     update_register(get)
     update_plan(get)
+    update_monthly_prices(get)
     reserved = {'schema_version', 'run_finished_at', 'last_verified_date',
                 'last_verified_date_is_legacy', 'verification_note', 'rows',
                 'datasets', 'dataset_details'}
