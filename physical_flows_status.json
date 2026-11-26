@@ -1,6 +1,6 @@
 {
-  "state": "PARTIAL",
-  "checked_at": "2026-11-26T12:23:38+00:00",
+  "state": "OK",
+  "checked_at": "2026-11-26T12:29:47+00:00",
   "timezone": "Europe/Sarajevo",
   "requested_first_day": "2026-10-27",
   "requested_last_day": "2026-11-26",
@@ -8,12 +8,7 @@
   "unit": "MW",
   "row_count": 4394,
   "historical_incomplete_pairs": [],
-  "request_failures": [
-    {
-      "direction": "BA>RS",
-      "reason": "Source unavailable or validation failed; saved intervals retained"
-    }
-  ],
+  "request_failures": [],
   "coverage": [
     {
       "day": "2026-10-27",
