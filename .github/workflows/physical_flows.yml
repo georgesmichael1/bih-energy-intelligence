@@ -1,7 +1,5 @@
 name: BiH Physical Flows 31 Delivery Days
 on:
-  schedule:
-    - cron: '17 3 * * *'
   workflow_dispatch:
 permissions:
   contents: write
