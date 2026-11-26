@@ -11,8 +11,8 @@ on:
   workflow_dispatch:
     inputs:
       workers:
-        description: 'ENTSO-E datasets fetched in parallel (1 = sequential)'
-        default: '3'
+        description: 'ENTSO-E datasets fetched in parallel inside each leg (1 = sequential)'
+        default: '2'
 
 permissions:
   contents: write
@@ -76,7 +76,7 @@ jobs:
             git commit -m "chore(data): auto-update $(date -u +'%Y-%m-%d %H:%M')"
             pushed=0
             for attempt in 1 2 3 4 5 6; do
-              if git pull --rebase --autostash origin main && git push origin HEAD:main; then pushed=1; break; fi
+              if git pull --rebase --autostash origin ${{ github.ref_name }} && git push origin HEAD:${{ github.ref_name }}; then pushed=1; break; fi
               echo "Push attempt $attempt failed, retrying"; sleep $((attempt * 4))
             done
             [ "$pushed" = 1 ]
@@ -116,7 +116,87 @@ jobs:
             Repository: ${{ github.repository }}
             Run URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
+  # ENTSO-E previous-day data is split into parallel legs (one runner each) so the slowest leg sets the time.
+  # Each leg fetches only its own datasets and commits only its own CSVs. Same fetch code, same validation.
   entsoe-daily:
+    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '30 2 * * *'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - leg: ntc
+            datasets: ntc_day_ahead
+          - leg: nominated
+            datasets: nominated_daily
+          - leg: scheduled
+            datasets: scheduled_total
+          - leg: schedules-load
+            datasets: scheduled_rs_me,hr_schedules,load_forecast
+    env:
+      ENTSOE_API_TOKEN: ${{ secrets.ENTSOE_API_TOKEN }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run offline tests
+        run: python -m unittest discover -s tests -v
+
+      # Fails the run if the token is missing, any direction fails, or nothing was recorded.
+      - name: Fetch previous-day ENTSO-E data (${{ matrix.leg }})
+        env:
+          ENTSOE_WORKERS: ${{ github.event.inputs.workers || '2' }}
+          ENTSOE_DATASETS: ${{ matrix.datasets }}
+        run: |
+          python3 - <<'PY'
+          import sys
+          from entsoe_adapter import update_entsoe
+          from pipeline_status import DATASETS
+          update_entsoe(include_physical=False, include_capacity=True)
+          names = [k for k in DATASETS if k.startswith("entsoe_")]
+          if not names:
+              print("::error::No ENTSO-E dataset state was recorded")
+              sys.exit(1)
+          bad = {k: DATASETS[k] for k in names if DATASETS[k]["state"] != "OK"}
+          for k, v in bad.items():
+              print(f"::error::{k}: {v['state']} {v['detail']}")
+          sys.exit(1 if bad else 0)
+          PY
+
+      # Also runs after a partial failure so valid recovered days are saved; the run still ends red.
+      - name: Commit and push ENTSO-E CSVs
+        if: success() || failure()
+        run: |
+          git config user.name "BiH Energy Auto-Updater"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          for f in entsoe_load_forecast.csv entsoe_hr_schedules.csv entsoe_scheduled_rs_me.csv entsoe_scheduled_total.csv entsoe_ntc_day_ahead.csv entsoe_nominated_daily.csv; do
+            [ -f "$f" ] && git add "$f"
+          done
+          if git diff --staged --quiet; then
+            echo "No ENTSO-E changes this run."
+          else
+            git commit -m "chore(entsoe): daily previous-day update ${{ matrix.leg }} $(date -u +'%Y-%m-%d %H:%M')"
+            pushed=0
+            for attempt in 1 2 3 4 5 6; do
+              if git pull --rebase --autostash origin ${{ github.ref_name }} && git push origin HEAD:${{ github.ref_name }}; then pushed=1; break; fi
+              echo "Push attempt $attempt failed, retrying"; sleep $((attempt * 4))
+            done
+            [ "$pushed" = 1 ]
+          fi
+
+  entsoe-actuals:
     if: github.event_name == 'workflow_dispatch' || github.event.schedule == '30 2 * * *'
     runs-on: ubuntu-latest
     timeout-minutes: 40
@@ -140,28 +220,7 @@ jobs:
       - name: Run offline tests
         run: python -m unittest discover -s tests -v
 
-      # Fails the run if the token is missing, any direction fails, or nothing was recorded.
-      - name: Fetch previous-day ENTSO-E data
-        env:
-          ENTSOE_WORKERS: ${{ github.event.inputs.workers || '3' }}
-        run: |
-          python3 - <<'PY'
-          import sys
-          from entsoe_adapter import update_entsoe
-          from pipeline_status import DATASETS
-          update_entsoe(include_physical=False, include_capacity=True)
-          names = [k for k in DATASETS if k.startswith("entsoe_")]
-          if not names:
-              print("::error::No ENTSO-E dataset state was recorded")
-              sys.exit(1)
-          bad = {k: DATASETS[k] for k in names if DATASETS[k]["state"] != "OK"}
-          for k, v in bad.items():
-              print(f"::error::{k}: {v['state']} {v['detail']}")
-          sys.exit(1 if bad else 0)
-          PY
-
       - name: Fetch actual load and generation per type
-        if: success() || failure()
         run: |
           python3 - <<'PY'
           import sys
@@ -175,23 +234,21 @@ jobs:
           sys.exit(1 if bad else 0)
           PY
 
-      # Only load and HR schedule CSVs (physical flows have their own rolling writer) are committed here. status.json is owned by the 30-minute job.
-      # Also runs after a partial failure so valid recovered days are saved; the run still ends red.
-      - name: Commit and push ENTSO-E CSVs
+      - name: Commit and push ENTSO-E actuals CSVs
         if: success() || failure()
         run: |
           git config user.name "BiH Energy Auto-Updater"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          for f in entsoe_load_forecast.csv entsoe_hr_schedules.csv entsoe_scheduled_rs_me.csv entsoe_scheduled_total.csv entsoe_ntc_day_ahead.csv entsoe_nominated_daily.csv entsoe_actual_load.csv entsoe_actual_generation.csv; do
+          for f in entsoe_actual_load.csv entsoe_actual_generation.csv; do
             [ -f "$f" ] && git add "$f"
           done
           if git diff --staged --quiet; then
-            echo "No ENTSO-E changes this run."
+            echo "No ENTSO-E actuals changes this run."
           else
-            git commit -m "chore(entsoe): daily previous-day update $(date -u +'%Y-%m-%d %H:%M')"
+            git commit -m "chore(entsoe): daily actuals update $(date -u +'%Y-%m-%d %H:%M')"
             pushed=0
             for attempt in 1 2 3 4 5 6; do
-              if git pull --rebase --autostash origin main && git push origin HEAD:main; then pushed=1; break; fi
+              if git pull --rebase --autostash origin ${{ github.ref_name }} && git push origin HEAD:${{ github.ref_name }}; then pushed=1; break; fi
               echo "Push attempt $attempt failed, retrying"; sleep $((attempt * 4))
             done
             [ "$pushed" = 1 ]
@@ -224,7 +281,7 @@ jobs:
             git commit -m "chore(flows): refresh31delivery days"
             pushed=0
             for attempt in 1 2 3 4 5 6; do
-              if git pull --rebase --autostash origin main && git push origin HEAD:main; then pushed=1; break; fi
+              if git pull --rebase --autostash origin ${{ github.ref_name }} && git push origin HEAD:${{ github.ref_name }}; then pushed=1; break; fi
               echo "Push attempt $attempt failed, retrying"; sleep $((attempt * 4))
             done
             [ "$pushed" = 1 ]
