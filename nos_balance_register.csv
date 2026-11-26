@@ -1,0 +1,98 @@
+Snapshot_Date,Reg_No,Owner,Owner_Group,Plant,Type,MW,MWh,Application_Date,Note,Source
+2026-11-10,01,MH Elektroprivreda Republike Srpske,ERS,"HPP Bočac, 2x55 MW",Hydro,110.0,,,electric power producer,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,02,PLC Elektroprivreda Hrvatske Zajednice Herceg Bosne,EP HZHB,"PHPP Čapljina, 2x220 MW",Pumped hydro,440.0,,,electric power producer,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,03,Hidroinvest Ltd Rogatica,Hidroinvest Ltd Rogatica,"HPP Dub, 2x4,7 MW",Hydro,9.4,,,electric power producer,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,04,MH Elektroprivreda Republike Srpske,ERS,"HPP Dubrovnik, 1x108+1x126 MW",Hydro,234.0,,,electric power producer,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,05,MH Elektroprivreda Republike Srpske,ERS,"TPP Gacko, 300 MW",Thermal,300.0,,,electric power producer,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,06,PLC Elektroprivreda Bosne i Hercegovine,EP BiH,"HPP Grabovica, 2x57 MW",Hydro,114.0,,,electric power producer,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,07,PLC Elektroprivreda Bosne i Hercegovine,EP BiH,"HPP Jablanica, 6x30 MW",Hydro,180.0,,,electric power producer,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,08,PLC Elektroprivreda Hrvatske Zajednice Herceg Bosne,EP HZHB,"HPP Jajce I, 2x30 MW",Hydro,60.0,,,electric power producer,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,09,PLC Elektroprivreda Hrvatske Zajednice Herceg Bosne,EP HZHB,"HPP Jajce II, 3x10 MW",Hydro,30.0,,,electric power producer,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,10,FL Wind,FL Wind,"WPP Jelovača, 18x2 MW",Wind,36.0,,,electric power producer,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,11,PLC Elektroprivreda Bosne i Hercegovine,EP BiH,"TPP Kakanj, 2x110+1x230 MW",Thermal,450.0,,,electric power producer,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,12,PLC Elektroprivreda Hrvatske Zajednice Herceg Bosne,EP HZHB,"WPP Mesihovina, 22x2,3 MW",Wind,50.6,,,electric power producer,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,13,PLC Elektroprivreda Hrvatske Zajednice Herceg Bosne,EP HZHB,"HPP Mostar, 3x24 MW",Hydro,72.0,,,electric power producer,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,14,PLC Elektroprivreda Hrvatske Zajednice Herceg Bosne,EP HZHB,"HPP Mostarsko Blato, 2x30 MW",Hydro,60.0,,,electric power producer,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,15,PLC Elektroprivreda Hrvatske Zajednice Herceg Bosne,EP HZHB,"HPP Peć-Mlini, 2x15,3 MW",Hydro,30.6,,,electric power producer,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,16,DRIN Energija Ltd Grude,DRIN Energija Ltd Grude,"SPP Petnjik, 29,2 MW",Solar,29.2,,,electric power producer,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,17,PLC Elektroprivreda Bosne i Hercegovine,EP BiH,"WPP Podveležje, 15x3,2 MW",Wind,48.0,,,electric power producer,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,18,PLC Elektroprivreda Hrvatske Zajednice Herceg Bosne,EP HZHB,"HPP Rama, 1x80+1x90 MW",Hydro,170.0,,,electric power producer,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,19,PLC Elektroprivreda Bosne i Hercegovine,EP BiH,"HPP Salakovac, 3x70 MW",Hydro,210.0,,,electric power producer,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,20,EFT Rudnik i TE Stanari Ltd Stanari,EFT Rudnik i TE Stanari Ltd Stanari,"TPP Stanari, 300 MW",Thermal,300.0,,,electric power producer,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,21,MH Elektroprivreda Republike Srpske,ERS,"HPP Trebinje I, 2x54+1x63 MW",Hydro,171.0,,,electric power producer,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,22,PLC Elektroprivreda Bosne i Hercegovine,EP BiH,"TPP Tuzla, 1x100+2x200+1x223 MW",Thermal,723.0,,,electric power producer,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,23,MH Elektroprivreda Republike Srpske,ERS,"TPP Ugljevik, 300 MW",Thermal,300.0,,,electric power producer,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,24,Hidroinvest Ltd Rogatica,Hidroinvest Ltd Rogatica,"HPP Ustiprača, 2x3,74 MW",Hydro,7.48,,,electric power producer,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,25,MH Elektroprivreda Republike Srpske,ERS,"HPP Višegrad, 3x105 MW",Hydro,315.0,,,electric power producer,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,26,Aluminij Industries Ltd,Aluminij Industries Ltd,Aluminij Mostar,Consumer,,,,electric power consumer,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,27,PLC Željeznice FBiH Ltd,PLC Željeznice FBiH Ltd,Željeznice FBiH,Consumer,,,,electric power consumer,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,28,Arcelor Mittal,Arcelor Mittal,Arcelor Mittal,Consumer,,,,electric power consumer,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,29,Heidelberg Materials Jsc,Heidelberg Materials Jsc,Cementara Kakanj,Consumer,,,,electric power consumer,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,30,KTK Visoko Jsc,KTK Visoko Jsc,KTK Visoko,Consumer,,,,electric power consumer,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,31,FL Wind Ltd,FL Wind Ltd,FL Wind,Consumer,,,,electric power consumer,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,32,Toplana Zenica Ltd,Toplana Zenica Ltd,Toplana Zenica,Consumer,,,,electric power consumer,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,33,Prevent CEE,Prevent CEE,Prevent CEE,Consumer,,,,electric power consumer,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,34,Željezara Ilijaš Jsc,Željezara Ilijaš Jsc,Željezara Ilijaš,Consumer,,,,electric power consumer,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,35,FG Birač,FG Birač,FG Birač Zvornik,Consumer,,,,electric power consumer,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,36,Željeznice Republike Srpske,Željeznice Republike Srpske,Željeznice RS,Consumer,,,,electric power consumer,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,37,Metalleghe Silicon Ltd,Metalleghe Silicon Ltd,Metalleghe Silicon,Consumer,,,,electric power consumer,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,38,EFT-HE Ulog,EFT-HE Ulog,"HPP Ulog, 35,12 MW",Hydro,35.12,,,electric power producer,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,39,PLC Elektroprivreda Bosne i Hercegovine,EP BiH,"HPP Janjići, 15,8 MW",Hydro,15.8,,,request for a connection agreement 07.05.2025.,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,40,MH Elektroprivreda Republike Srpske,ERS,"HPP Dabar, 159,15 MW",Hydro,159.15,,,annex to the connection agreement 15.02.2024.,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,41,TO Zenica,TO Zenica,"HP Zenica, 14,45 MW",Thermal,14.45,,,approval for connection 08.12.2021.,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,42,Tomislavgrad-Kupres,Tomislavgrad-Kupres,"WPP Baljci, 48 MW",Wind,48.0,,,electric power producer,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,43,Relaks,Relaks,"WPP Oštrc, 29,8 MW",Wind,29.8,,,electric power producer,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,44,Vjetroelektrana Grebak,Vjetroelektrana Grebak,"WPP Grebak, 66 MW",Wind,66.0,,,annex to the connection agreement 08.12.2025.,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,45,VE Ivovik,VE Ivovik,"WPP Ivovik, 84 MW",Wind,84.0,,,electric power producer,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,46,Vjetropark Interwind,Vjetropark Interwind,"WPP Ivan sedlo, 25 MW",Wind,25.0,,,electric power producer,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,47,FL Wind,FL Wind,"WPP Tušnica, 72,6 MW",Wind,72.6,,,annex to the connection agreement 24.07.2025.,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,49,Imres,Imres,"WPP Široka Draga, 125,4 MW",Wind,125.4,,,connection agreement 28.06.2024.,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,51,EFT SE Bileća,EFT SE Bileća,"SPP Bileća, 55 MW",Solar,55.0,,,electric power producer,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,52,SE Trebinje 1,SE Trebinje 1,"SPP Trebinje 1, 118,8 MW",Solar,118.8,,,"new power 118,8 MW",https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,53,ECO-WAT,ECO-WAT,"SPP Eco-Wat, 92,47 MW",Solar,92.47,,,electric power producer,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,54,Pozitron,Pozitron,"SPP Polog 1-8, 7,99 MW",Solar,7.99,,,electric power producer,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,55,Plavo Sunce,Plavo Sunce,"SPP Plavo Sunce, 40 MW",Solar,40.0,,,electric power producer,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,56,ASTERA,ASTERA,"SPP Astera, 25 MW",Solar,25.0,,,annex to the connection agreement 31.12.2025.,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,57,PLC EP HZHB,EP HZHB,"SPP EP HZHB1, 150 MW",Solar,150.0,,12.12.2023,annex to the connection agreement 09.12.2025.,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,58,AURORA SOLAR Ltd,AURORA SOLAR Ltd,"SPP Stolac solar 01-1 to 01-22, 103,15 MW",Solar,103.15,,11.01.2024,connection agreement 03.07.2025.,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,59,MET Consulting Ltd,MET Consulting Ltd,"SPP Zvizdan, 28,5 MW",Solar,28.5,,12.01.2024,electric power producer,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,60,ENERSTATE Ltd,ENERSTATE Ltd,"SPP Sokolac, 100,8 MW",Solar,100.8,,16.01.2024,request for connection agreement 05.08.2026.,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,61,ETMAX Ltd,ETMAX Ltd,"SPP Nevesinje, SPP Nevesinje 1-14, MDD Energy, M Solar, 570 MW",Solar,570.0,,27.02.2024,,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,62,Pozitron Ltd,Pozitron Ltd,"SPP Liwno 1 - SE Liwno 6, 27 MW",Solar,27.0,,08.03.2024,electric power producer,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,63,B&B sunce vjetar Ltd,B&B sunce vjetar Ltd,SPP and WPP Planik 80+36 MW,Solar + wind,116.0,,26.03.2024,request for a connection agreement WPP Planik 16.04.2026.,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,64,DELING INVEST Ltd,DELING INVEST Ltd,"SPP DELING INVEST 1, 29,75 MW",Solar,29.75,,29.03.2024,electric power producer,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,65,FOTONAPONSKA ELEKTRANA 2 Ltd,FOTONAPONSKA ELEKTRANA 2 Ltd,"SPP Trebinje 2, 48,7 MW",Solar,48.7,,01.04.2024,,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,66,Solario Ltd,Solario Ltd,"SPP Solario 1 and 2, 4 + 4 MW + 11, 4378 MW (power plants less than 1 MW)",Solar,,,04.04.2024,connection agreement 24.09.2025.,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,67,TPC Ltd Sarajevo,TPC Ltd Sarajevo,"SPP TOP PRO 1-4, 3 MW (power plants less than 1 MW)",Solar,3.0,,13.05.2024,,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,68,SOLARIO Ltd Mostar,SOLARIO Ltd Mostar,"SPP Solario 3-12, 9,99 MW (power plants less than 1 MW)",Solar,9.99,,14.05.2024,,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,69,HL 001 Group Ltd Mostar,HL 001 Group Ltd Mostar,"SPP HL 31-60, 29,7 MW (power plants less than 1 MW)",Solar,29.7,,24.05.2024,,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,70,SOLARNI VJETAR Ltd Mostar,SOLARNI VJETAR Ltd Mostar,"SPP Solarni vjetar 1-12, 60 MW",Solar,60.0,,11.07.2024,connection agreement 09.09.2025.,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,71,NSOL Ltd Mostar,NSOL Ltd Mostar,"SPP Brotnjo 1 and 2, 9,98 MW",Solar,9.98,,11.07.2024,electric power producer,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,72,ECCO SOLAR ENERGY Ltd Čitluk,ECCO SOLAR ENERGY Ltd Čitluk,"SPP MI SOLIS 1-36, 35,64 MW (power plants less than 1 MW)",Solar,35.64,,18.07.2024,request for connection agreement 14.07.2026.,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,73,IM SUNCE Ltd Čitluk,IM SUNCE Ltd Čitluk,"SPP MI SOLIS 37-42, 5,94 MW (power plants less than 1 MW)",Solar,5.94,,18.07.2024,,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,74,PLC EP HZHB,EP HZHB,"WPP Poklečani, 132MW",Wind,132.0,,23.07.2024,,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,75,Energy of the future Ltd Bijeljina,Energy of the future Ltd Bijeljina,"SPP Bileća - Solar 1, 128,7MW",Solar,128.7,,23.07.2024,connection agreement 18.12.2025.,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,76,PLC Komunalno Ltd Mostar,PLC Komunalno Ltd Mostar,"SPP MO SOLAR 1-10, 49,9 MW",Solar,49.9,,29.07.2024,15.10.2025. Amendment to the Connection conditions without changing the validity period,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,77,PLC Elektroprivreda Bosne i Hercegovine,EP BiH,"SPP Gračanica 1 and 2, 2 x 22,5 MW",Solar,45.0,,02.08.2024,,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,78,ECO-WAT,ECO-WAT,"SPP F1 and F4, 2 x 0,999 MW",Solar,1.998,,12.08.2024,electric power producer,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,80,ECO-WAT,ECO-WAT,"SPP F2 and F3, 2 x 4,9992 MW",Solar,9.9984,,26.08.2024,electric power producer,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,81,G&G Energija Llc Bihać,G&G Energija Llc Bihać,"WPP Derala, Derala jug and Derala zapad, 158,4 MW",Wind,158.4,,28.08.2024,request for connection agreement 25.09.2026.,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,82,MAJSKO SUNCE Ltd Čitluk,MAJSKO SUNCE Ltd Čitluk,"SPP MAJSKO SUNCE 3-11 and 13, 9,54 MW (power plants less than 1 MW)",Solar,9.54,,03.09.2024,,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,83,IM SUNCE Ltd Čitluk,IM SUNCE Ltd Čitluk,"SPP LUCIA 1 and 2, 1,29 MW (power plants less than 1 MW)",Solar,1.29,,03.09.2024,,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,84,ECCO SOLAR ENERGY Ltd Čitluk,ECCO SOLAR ENERGY Ltd Čitluk,"SPP ESE 1-36, 35,64 MW (power plants less than 1 MW)",Solar,35.64,,03.09.2024,,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,85,PREMIER ENERGY Ltd Čitluk,PREMIER ENERGY Ltd Čitluk,"SPP PE 1-9, 8,91 MW (power plants less than 1 MW)",Solar,8.91,,03.09.2024,,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,86,SOLARKO Ltd Čitluk,SOLARKO Ltd Čitluk,"SPP SOLARKO 1-6, 5,94 MW (power plants less than 1 MW)",Solar,5.94,,04.09.2024,,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,87,MS POWER Ltd Sarajevo,MS POWER Ltd Sarajevo,"SPP SOLE 1-5, 4,95 MW (power plants less than 1 MW)",Solar,4.95,,04.09.2024,,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,88,ACIS BH Ltd Sarajevo,ACIS BH Ltd Sarajevo,"SPP ACIS 2, 0,99 MW",Solar,0.99,,06.09.2024,,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,89,Solar Lena Ltd Grude,Solar Lena Ltd Grude,"SPP Lena 2, 75 MW",Solar,75.0,,09.09.2024,request for connection agreement 14.08.2026.,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,90,MAJD 2 Ltd Ljubuški,MAJD 2 Ltd Ljubuški,"SPP Gaj 1 and 2, 4,1028 + 3,4801 MW",Solar,7.5829,,11.09.2024,connection agreement 30.10.2025.,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,91,INOVACIJE Ltd Ljubuški,INOVACIJE Ltd Ljubuški,"SPP Kravice 1 and 2, 18 + 26 MW",Solar,44.0,,11.09.2024,,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,92,IM SUNCE Ltd Čitluk,IM SUNCE Ltd Čitluk,"SPP IM SUNCE 2-3, 21-25 and SPP TERA 1-3, 36,851 MW",Solar,36.851,,01.10.2024,07.08.2024. Amendment to the Connection conditions without changing the validity period,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,93,"H&L ""001"" Ltd Mostar","H&L ""001"" Ltd Mostar","SPP HL 1-12, 54 MW",Solar,54.0,,01.10.2024,request for a connection agreement 21.04.2026.,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,94,Bioenergos TTS Ltd Banja Luka,Bioenergos TTS Ltd Banja Luka,"SPP Borike, 232,2 MW",Solar,232.2,,09.10.2024,,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,95,"Hidroelektrane ""Bistrica"" Ltd Foča","Hidroelektrane ""Bistrica"" Ltd Foča","HPP B1, HPP B2a and HPP B3, 34,1 MW",Hydro,34.1,,09.06.2025,,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,96,Deling Invest Ltd Tuzla,Deling Invest Ltd Tuzla,"SPP DELING INVEST 1 - II phase, 29,75 MW",Solar,29.75,,13.02.2026,,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,97,Delplast Ltd Tuzla,Delplast Ltd Tuzla,"SPP Delplast 1, 29,75 MW",Solar,29.75,,26.02.2026,request for a connection agreement 20.04.2026.,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,98,THE VOLT Ltd Mostar,THE VOLT Ltd Mostar,"BESS Glinište, 43,2 MW, 174,46 MWh",Storage (BESS),43.2,174.46,16.07.2026,provision of service aFRR-s,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,99,MO Kontakt Ltd Mostar,MO Kontakt Ltd Mostar,"BESS Goražde, 51,2 MW, 207,552 MWh",Storage (BESS),51.2,207.552,16.07.2026,provision of service aFRR-s,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/
+2026-11-10,100,DYNAMIQ ENERGY Ltd Banja Luka,DYNAMIQ ENERGY Ltd Banja Luka,"BESS Zenica, 43,5 MW, 174 MWh",Storage (BESS),43.5,174.0,03.09.2026,provision of service aFRR-s,https://www.nosbih.ba/en/dokumenti/registri/bilansirani-korisnici/

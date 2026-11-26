@@ -1,0 +1,47 @@
+Plan_Period,Plant,Type,Year,MW_New,Source
+2027-2036,TOPLANA ZENICA,Thermal,2027,14.45,https://www.nosbih.ba/files/2026/06/20260604-lat-Indikativni-plan-razvoja-proizvodnje-2027-2036.pdf
+2027-2036,HE JANJIĆI,Hydro,2031,15.8,https://www.nosbih.ba/files/2026/06/20260604-lat-Indikativni-plan-razvoja-proizvodnje-2027-2036.pdf
+2027-2036,HE DABAR,Hydro,2027,159.15,https://www.nosbih.ba/files/2026/06/20260604-lat-Indikativni-plan-razvoja-proizvodnje-2027-2036.pdf
+2027-2036,"HE BISTRICA (B1, B2A, B3)",Hydro,2027,17.94,https://www.nosbih.ba/files/2026/06/20260604-lat-Indikativni-plan-razvoja-proizvodnje-2027-2036.pdf
+2027-2036,"HE BISTRICA (B1, B2A, B3)",Hydro,2028,16.2,https://www.nosbih.ba/files/2026/06/20260604-lat-Indikativni-plan-razvoja-proizvodnje-2027-2036.pdf
+2027-2036,VE BALJCI,Wind,2026,48.0,https://www.nosbih.ba/files/2026/06/20260604-lat-Indikativni-plan-razvoja-proizvodnje-2027-2036.pdf
+2027-2036,VE GREBAK,Wind,2027,66.0,https://www.nosbih.ba/files/2026/06/20260604-lat-Indikativni-plan-razvoja-proizvodnje-2027-2036.pdf
+2027-2036,VE TUŠNICA,Wind,2027,72.6,https://www.nosbih.ba/files/2026/06/20260604-lat-Indikativni-plan-razvoja-proizvodnje-2027-2036.pdf
+2027-2036,VE ŠIROKA DRAGA,Wind,2027,125.4,https://www.nosbih.ba/files/2026/06/20260604-lat-Indikativni-plan-razvoja-proizvodnje-2027-2036.pdf
+2027-2036,VE PLANIK,Wind,2027,36.0,https://www.nosbih.ba/files/2026/06/20260604-lat-Indikativni-plan-razvoja-proizvodnje-2027-2036.pdf
+2027-2036,VE POKLEČANI,Wind,2027,132.0,https://www.nosbih.ba/files/2026/06/20260604-lat-Indikativni-plan-razvoja-proizvodnje-2027-2036.pdf
+2027-2036,VE ŠKADIMOVAC,Wind,2027,110.0,https://www.nosbih.ba/files/2026/06/20260604-lat-Indikativni-plan-razvoja-proizvodnje-2027-2036.pdf
+2027-2036,SE TREBINJE1,Solar,2027,118.8,https://www.nosbih.ba/files/2026/06/20260604-lat-Indikativni-plan-razvoja-proizvodnje-2027-2036.pdf
+2027-2036,FNE EPHZHB 1,Solar,2026,50.0,https://www.nosbih.ba/files/2026/06/20260604-lat-Indikativni-plan-razvoja-proizvodnje-2027-2036.pdf
+2027-2036,FNE EPHZHB 1,Solar,2027,100.0,https://www.nosbih.ba/files/2026/06/20260604-lat-Indikativni-plan-razvoja-proizvodnje-2027-2036.pdf
+2027-2036,SE ASTERA,Solar,2026,25.0,https://www.nosbih.ba/files/2026/06/20260604-lat-Indikativni-plan-razvoja-proizvodnje-2027-2036.pdf
+2027-2036,FNE STOLAC SOLAR 01-22,Solar,2026,103.12,https://www.nosbih.ba/files/2026/06/20260604-lat-Indikativni-plan-razvoja-proizvodnje-2027-2036.pdf
+2027-2036,FNE SOKOLAC,Solar,2026,100.0,https://www.nosbih.ba/files/2026/06/20260604-lat-Indikativni-plan-razvoja-proizvodnje-2027-2036.pdf
+2027-2036,SE NEVESINJE,Solar,2027,570.0,https://www.nosbih.ba/files/2026/06/20260604-lat-Indikativni-plan-razvoja-proizvodnje-2027-2036.pdf
+2027-2036,SE PLANIK,Solar,2027,80.0,https://www.nosbih.ba/files/2026/06/20260604-lat-Indikativni-plan-razvoja-proizvodnje-2027-2036.pdf
+2027-2036,SE LIWNO 1-6,Solar,2026,27.0,https://www.nosbih.ba/files/2026/06/20260604-lat-Indikativni-plan-razvoja-proizvodnje-2027-2036.pdf
+2027-2036,SE TREBINJE 2,Solar,2027,48.7,https://www.nosbih.ba/files/2026/06/20260604-lat-Indikativni-plan-razvoja-proizvodnje-2027-2036.pdf
+2027-2036,SE SOLARIO,Solar,2026,19.44,https://www.nosbih.ba/files/2026/06/20260604-lat-Indikativni-plan-razvoja-proizvodnje-2027-2036.pdf
+2027-2036,FNE SOLARIO 3-12,Solar,2026,9.99,https://www.nosbih.ba/files/2026/06/20260604-lat-Indikativni-plan-razvoja-proizvodnje-2027-2036.pdf
+2027-2036,FNE HL 31-60,Solar,2026,29.7,https://www.nosbih.ba/files/2026/06/20260604-lat-Indikativni-plan-razvoja-proizvodnje-2027-2036.pdf
+2027-2036,SE TOP PRO 1-4,Solar,2026,3.0,https://www.nosbih.ba/files/2026/06/20260604-lat-Indikativni-plan-razvoja-proizvodnje-2027-2036.pdf
+2027-2036,SE SOLARNI VJETAR 1-12,Solar,2026,60.0,https://www.nosbih.ba/files/2026/06/20260604-lat-Indikativni-plan-razvoja-proizvodnje-2027-2036.pdf
+2027-2036,SE MI SOLIS 1-36,Solar,2026,35.64,https://www.nosbih.ba/files/2026/06/20260604-lat-Indikativni-plan-razvoja-proizvodnje-2027-2036.pdf
+2027-2036,SE MI SOLIS 37-42,Solar,2026,5.94,https://www.nosbih.ba/files/2026/06/20260604-lat-Indikativni-plan-razvoja-proizvodnje-2027-2036.pdf
+2027-2036,FNE BILEĆA- SOLAR 1,Solar,2026,128.7,https://www.nosbih.ba/files/2026/06/20260604-lat-Indikativni-plan-razvoja-proizvodnje-2027-2036.pdf
+2027-2036,SE MO SOLAR 1-10,Solar,2026,49.9,https://www.nosbih.ba/files/2026/06/20260604-lat-Indikativni-plan-razvoja-proizvodnje-2027-2036.pdf
+2027-2036,SE GRAČANICA 1 i 2,Solar,2028,45.0,https://www.nosbih.ba/files/2026/06/20260604-lat-Indikativni-plan-razvoja-proizvodnje-2027-2036.pdf
+2027-2036,SE MAJSKO SUNCE 3-11 i 13,Solar,2026,9.54,https://www.nosbih.ba/files/2026/06/20260604-lat-Indikativni-plan-razvoja-proizvodnje-2027-2036.pdf
+2027-2036,SE LUCIA 1 i 2,Solar,2026,1.29,https://www.nosbih.ba/files/2026/06/20260604-lat-Indikativni-plan-razvoja-proizvodnje-2027-2036.pdf
+2027-2036,SE ESE 1-36,Solar,2026,35.64,https://www.nosbih.ba/files/2026/06/20260604-lat-Indikativni-plan-razvoja-proizvodnje-2027-2036.pdf
+2027-2036,SE PE 1-9,Solar,2026,8.91,https://www.nosbih.ba/files/2026/06/20260604-lat-Indikativni-plan-razvoja-proizvodnje-2027-2036.pdf
+2027-2036,SE SOLARKO 1-6,Solar,2026,5.94,https://www.nosbih.ba/files/2026/06/20260604-lat-Indikativni-plan-razvoja-proizvodnje-2027-2036.pdf
+2027-2036,SE SOLE 1-5,Solar,2026,4.95,https://www.nosbih.ba/files/2026/06/20260604-lat-Indikativni-plan-razvoja-proizvodnje-2027-2036.pdf
+2027-2036,SE ACIS 2,Solar,2026,0.99,https://www.nosbih.ba/files/2026/06/20260604-lat-Indikativni-plan-razvoja-proizvodnje-2027-2036.pdf
+2027-2036,SE LENA 2,Solar,2027,75.0,https://www.nosbih.ba/files/2026/06/20260604-lat-Indikativni-plan-razvoja-proizvodnje-2027-2036.pdf
+2027-2036,SE GAJ 1 i 2,Solar,2026,7.6,https://www.nosbih.ba/files/2026/06/20260604-lat-Indikativni-plan-razvoja-proizvodnje-2027-2036.pdf
+2027-2036,SE KRAVICE 1 i 2,Solar,2027,44.0,https://www.nosbih.ba/files/2026/06/20260604-lat-Indikativni-plan-razvoja-proizvodnje-2027-2036.pdf
+2027-2036,"SE IM SUNCE 2-3, 21-25 i",Solar,2027,36.85,https://www.nosbih.ba/files/2026/06/20260604-lat-Indikativni-plan-razvoja-proizvodnje-2027-2036.pdf
+2027-2036,SE HL 1-12,Solar,2027,54.0,https://www.nosbih.ba/files/2026/06/20260604-lat-Indikativni-plan-razvoja-proizvodnje-2027-2036.pdf
+2027-2036,SE BORIKE,Solar,2027,232.2,https://www.nosbih.ba/files/2026/06/20260604-lat-Indikativni-plan-razvoja-proizvodnje-2027-2036.pdf
+2027-2036,SE DELING INVEST II faza,Solar,2027,29.75,https://www.nosbih.ba/files/2026/06/20260604-lat-Indikativni-plan-razvoja-proizvodnje-2027-2036.pdf

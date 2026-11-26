@@ -1,0 +1,135 @@
+Year,Product,Provider,Delivered_MW_avg,Share_pct,Source
+2018,aFRR_Night,EP BiH,8.401,58.1,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2018-en-balansno-trziste-tabele.xlsx
+2018,aFRR_Night,ERS,5.293,36.6,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2018-en-balansno-trziste-tabele.xlsx
+2018,aFRR_Night,EP HZHB,0.775,5.4,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2018-en-balansno-trziste-tabele.xlsx
+2018,aFRR_Day,EP BiH,20.566,54.0,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2018-en-balansno-trziste-tabele.xlsx
+2018,aFRR_Day,ERS,15.288,40.1,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2018-en-balansno-trziste-tabele.xlsx
+2018,aFRR_Day,EP HZHB,2.263,5.9,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2018-en-balansno-trziste-tabele.xlsx
+2018,mFRR_Up,EP BiH,57.864,37.9,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2018-en-balansno-trziste-tabele.xlsx
+2018,mFRR_Up,ERS,44.728,29.3,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2018-en-balansno-trziste-tabele.xlsx
+2018,mFRR_Up,EP HZHB,50.111,32.8,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2018-en-balansno-trziste-tabele.xlsx
+2018,mFRR_Up,EAL,0.0,0.0,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2018-en-balansno-trziste-tabele.xlsx
+2018,mFRR_Up,EFT Stanari,0.0,0.0,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2018-en-balansno-trziste-tabele.xlsx
+2018,mFRR_Down,EP BiH,0.0,0.0,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2018-en-balansno-trziste-tabele.xlsx
+2018,mFRR_Down,ERS,35.296,66.6,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2018-en-balansno-trziste-tabele.xlsx
+2018,mFRR_Down,EP HZHB,0.0,0.0,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2018-en-balansno-trziste-tabele.xlsx
+2018,mFRR_Down,EFT Stanari,17.668,33.4,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2018-en-balansno-trziste-tabele.xlsx
+2019,aFRR_Night,EP BiH,7.401,71.4,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2019-en-balansno-trziste-tabele.xlsx
+2019,aFRR_Night,ERS,0.93,9.0,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2019-en-balansno-trziste-tabele.xlsx
+2019,aFRR_Night,EP HZHB,2.03,19.6,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2019-en-balansno-trziste-tabele.xlsx
+2019,aFRR_Day,EP BiH,22.513,58.4,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2019-en-balansno-trziste-tabele.xlsx
+2019,aFRR_Day,ERS,8.859,23.0,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2019-en-balansno-trziste-tabele.xlsx
+2019,aFRR_Day,EP HZHB,7.207,18.7,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2019-en-balansno-trziste-tabele.xlsx
+2019,mFRR_Up,EP BiH,82.97,50.4,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2019-en-balansno-trziste-tabele.xlsx
+2019,mFRR_Up,ERS,34.79,21.1,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2019-en-balansno-trziste-tabele.xlsx
+2019,mFRR_Up,EP HZHB,46.772,28.4,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2019-en-balansno-trziste-tabele.xlsx
+2019,mFRR_Up,EAL,0.0,0.0,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2019-en-balansno-trziste-tabele.xlsx
+2019,mFRR_Up,EFT Stanari,0.0,0.0,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2019-en-balansno-trziste-tabele.xlsx
+2019,mFRR_Down,EP BiH,0.0,0.0,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2019-en-balansno-trziste-tabele.xlsx
+2019,mFRR_Down,ERS,28.916,58.2,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2019-en-balansno-trziste-tabele.xlsx
+2019,mFRR_Down,EP HZHB,0.0,0.0,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2019-en-balansno-trziste-tabele.xlsx
+2019,mFRR_Down,EFT Stanari,20.743,41.8,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2019-en-balansno-trziste-tabele.xlsx
+2020,aFRR_Night,EP BiH,3.569,62.1,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2020-en-balansno-trziste-tabele.xlsx
+2020,aFRR_Night,ERS,1.274,22.2,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2020-en-balansno-trziste-tabele.xlsx
+2020,aFRR_Night,EP HZHB,0.908,15.8,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2020-en-balansno-trziste-tabele.xlsx
+2020,aFRR_Day,EP BiH,14.399,39.8,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2020-en-balansno-trziste-tabele.xlsx
+2020,aFRR_Day,ERS,10.286,28.4,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2020-en-balansno-trziste-tabele.xlsx
+2020,aFRR_Day,EP HZHB,11.532,31.8,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2020-en-balansno-trziste-tabele.xlsx
+2020,mFRR_Up,EP BiH,92.126,50.3,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2020-en-balansno-trziste-tabele.xlsx
+2020,mFRR_Up,ERS,23.815,13.0,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2020-en-balansno-trziste-tabele.xlsx
+2020,mFRR_Up,EP HZHB,67.297,36.7,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2020-en-balansno-trziste-tabele.xlsx
+2020,mFRR_Up,EAL,0.0,0.0,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2020-en-balansno-trziste-tabele.xlsx
+2020,mFRR_Up,EFT Stanari,0.0,0.0,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2020-en-balansno-trziste-tabele.xlsx
+2020,mFRR_Down,EP BiH,0.0,0.0,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2020-en-balansno-trziste-tabele.xlsx
+2020,mFRR_Down,ERS,30.034,60.4,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2020-en-balansno-trziste-tabele.xlsx
+2020,mFRR_Down,EP HZHB,0.0,0.0,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2020-en-balansno-trziste-tabele.xlsx
+2020,mFRR_Down,EFT Stanari,19.661,39.6,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2020-en-balansno-trziste-tabele.xlsx
+2021,aFRR_Night,EP BiH,9.57,82.1,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2021-en-balansno-trziste-tabele.xlsx
+2021,aFRR_Night,ERS,1.761,15.1,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2021-en-balansno-trziste-tabele.xlsx
+2021,aFRR_Night,EP HZHB,0.331,2.8,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2021-en-balansno-trziste-tabele.xlsx
+2021,aFRR_Day,EP BiH,23.169,73.6,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2021-en-balansno-trziste-tabele.xlsx
+2021,aFRR_Day,ERS,4.626,14.7,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2021-en-balansno-trziste-tabele.xlsx
+2021,aFRR_Day,EP HZHB,3.675,11.7,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2021-en-balansno-trziste-tabele.xlsx
+2021,mFRR_Up,EP BiH,54.135,34.6,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2021-en-balansno-trziste-tabele.xlsx
+2021,mFRR_Up,ERS,20.472,13.1,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2021-en-balansno-trziste-tabele.xlsx
+2021,mFRR_Up,EP HZHB,81.963,52.3,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2021-en-balansno-trziste-tabele.xlsx
+2021,mFRR_Up,EAL,0.0,0.0,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2021-en-balansno-trziste-tabele.xlsx
+2021,mFRR_Up,EFT Stanari,0.0,0.0,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2021-en-balansno-trziste-tabele.xlsx
+2021,mFRR_Down,EP BiH,16.663,29.1,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2021-en-balansno-trziste-tabele.xlsx
+2021,mFRR_Down,ERS,27.882,48.6,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2021-en-balansno-trziste-tabele.xlsx
+2021,mFRR_Down,EP HZHB,12.767,22.3,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2021-en-balansno-trziste-tabele.xlsx
+2021,mFRR_Down,EFT Stanari,0.0,0.0,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2021-en-balansno-trziste-tabele.xlsx
+2022,FCR,EP BiH,5.001,38.5,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2022-en-balansno-trziste-tabele.xlsx
+2022,FCR,ERS,4.836,37.2,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2022-en-balansno-trziste-tabele.xlsx
+2022,FCR,EP HZHB,1.419,10.9,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2022-en-balansno-trziste-tabele.xlsx
+2022,FCR,EFT Stanari,1.744,13.4,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2022-en-balansno-trziste-tabele.xlsx
+2022,aFRR_Night,EP BiH,5.004,63.6,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2022-en-balansno-trziste-tabele.xlsx
+2022,aFRR_Night,ERS,2.861,36.4,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2022-en-balansno-trziste-tabele.xlsx
+2022,aFRR_Night,EP HZHB,0.0,0.0,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2022-en-balansno-trziste-tabele.xlsx
+2022,aFRR_Day,EP BiH,14.132,61.7,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2022-en-balansno-trziste-tabele.xlsx
+2022,aFRR_Day,ERS,8.787,38.3,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2022-en-balansno-trziste-tabele.xlsx
+2022,aFRR_Day,EP HZHB,0.0,0.0,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2022-en-balansno-trziste-tabele.xlsx
+2022,mFRR_Up,EP BiH,49.893,48.2,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2022-en-balansno-trziste-tabele.xlsx
+2022,mFRR_Up,ERS,10.252,9.9,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2022-en-balansno-trziste-tabele.xlsx
+2022,mFRR_Up,EP HZHB,43.456,41.9,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2022-en-balansno-trziste-tabele.xlsx
+2022,mFRR_Up,EAL,,,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2022-en-balansno-trziste-tabele.xlsx
+2022,mFRR_Up,EFT Stanari,0.0,0.0,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2022-en-balansno-trziste-tabele.xlsx
+2022,mFRR_Down,EP BiH,8.057,14.5,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2022-en-balansno-trziste-tabele.xlsx
+2022,mFRR_Down,ERS,22.404,40.3,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2022-en-balansno-trziste-tabele.xlsx
+2022,mFRR_Down,EP HZHB,12.367,22.2,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2022-en-balansno-trziste-tabele.xlsx
+2022,mFRR_Down,EFT Stanari,12.8,23.0,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2022-en-balansno-trziste-tabele.xlsx
+2023,FCR,EP BiH,10.0,71.4,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2023-en-balansno-trziste-tabele.xlsx
+2023,FCR,ERS,4.0,28.6,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2023-en-balansno-trziste-tabele.xlsx
+2023,FCR,EP HZHB,0.0,0.0,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2023-en-balansno-trziste-tabele.xlsx
+2023,FCR,EFT Stanari,0.0,0.0,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2023-en-balansno-trziste-tabele.xlsx
+2023,aFRR_Night,EP BiH,7.7,55.7,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2023-en-balansno-trziste-tabele.xlsx
+2023,aFRR_Night,ERS,6.129,44.3,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2023-en-balansno-trziste-tabele.xlsx
+2023,aFRR_Night,EP HZHB,0.0,0.0,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2023-en-balansno-trziste-tabele.xlsx
+2023,aFRR_Day,EP BiH,12.638,45.6,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2023-en-balansno-trziste-tabele.xlsx
+2023,aFRR_Day,ERS,15.054,54.4,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2023-en-balansno-trziste-tabele.xlsx
+2023,aFRR_Day,EP HZHB,0.0,0.0,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2023-en-balansno-trziste-tabele.xlsx
+2023,mFRR_Up,EP BiH,53.943,32.9,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2023-en-balansno-trziste-tabele.xlsx
+2023,mFRR_Up,ERS,29.082,17.8,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2023-en-balansno-trziste-tabele.xlsx
+2023,mFRR_Up,EP HZHB,80.775,49.3,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2023-en-balansno-trziste-tabele.xlsx
+2023,mFRR_Up,EAL,,,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2023-en-balansno-trziste-tabele.xlsx
+2023,mFRR_Up,EFT Stanari,0.0,0.0,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2023-en-balansno-trziste-tabele.xlsx
+2023,mFRR_Down,EP BiH,9.419,16.3,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2023-en-balansno-trziste-tabele.xlsx
+2023,mFRR_Down,ERS,21.165,36.6,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2023-en-balansno-trziste-tabele.xlsx
+2023,mFRR_Down,EP HZHB,12.507,21.6,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2023-en-balansno-trziste-tabele.xlsx
+2023,mFRR_Down,EFT Stanari,14.716,25.5,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2023-en-balansno-trziste-tabele.xlsx
+2024,FCR,EP BiH,6.598,50.8,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2024-en-balansno-trziste-tabele.xlsx
+2024,FCR,ERS,4.994,38.4,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2024-en-balansno-trziste-tabele.xlsx
+2024,FCR,EP HZHB,0.994,7.6,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2024-en-balansno-trziste-tabele.xlsx
+2024,FCR,EFT Stanari,0.415,3.2,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2024-en-balansno-trziste-tabele.xlsx
+2024,aFRR_Night,EP BiH,4.829,50.1,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2024-en-balansno-trziste-tabele.xlsx
+2024,aFRR_Night,ERS,4.818,49.9,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2024-en-balansno-trziste-tabele.xlsx
+2024,aFRR_Night,EP HZHB,0.0,0.0,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2024-en-balansno-trziste-tabele.xlsx
+2024,aFRR_Day,EP BiH,9.725,41.2,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2024-en-balansno-trziste-tabele.xlsx
+2024,aFRR_Day,ERS,13.879,58.8,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2024-en-balansno-trziste-tabele.xlsx
+2024,aFRR_Day,EP HZHB,0.0,0.0,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2024-en-balansno-trziste-tabele.xlsx
+2024,mFRR_Up,EP BiH,59.406,39.8,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2024-en-balansno-trziste-tabele.xlsx
+2024,mFRR_Up,ERS,32.907,22.1,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2024-en-balansno-trziste-tabele.xlsx
+2024,mFRR_Up,EP HZHB,56.882,38.1,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2024-en-balansno-trziste-tabele.xlsx
+2024,mFRR_Up,EFT Stanari,0.0,0.0,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2024-en-balansno-trziste-tabele.xlsx
+2024,mFRR_Down,EP BiH,5.584,10.1,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2024-en-balansno-trziste-tabele.xlsx
+2024,mFRR_Down,ERS,17.996,32.6,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2024-en-balansno-trziste-tabele.xlsx
+2024,mFRR_Down,EP HZHB,12.037,21.8,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2024-en-balansno-trziste-tabele.xlsx
+2024,mFRR_Down,EFT Stanari,19.501,35.4,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2024-en-balansno-trziste-tabele.xlsx
+2025,FCR,EP BiH,10.0,71.4,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2025-en-balansno-trziste-tabele.xlsx
+2025,FCR,ERS,4.0,28.6,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2025-en-balansno-trziste-tabele.xlsx
+2025,FCR,EP HZHB,0.0,0.0,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2025-en-balansno-trziste-tabele.xlsx
+2025,FCR,EFT Stanari,0.0,0.0,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2025-en-balansno-trziste-tabele.xlsx
+2025,aFRR_Night,EP BiH,4.252,45.1,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2025-en-balansno-trziste-tabele.xlsx
+2025,aFRR_Night,ERS,5.184,54.9,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2025-en-balansno-trziste-tabele.xlsx
+2025,aFRR_Night,EP HZHB,0.0,0.0,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2025-en-balansno-trziste-tabele.xlsx
+2025,aFRR_Day,EP BiH,7.896,41.8,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2025-en-balansno-trziste-tabele.xlsx
+2025,aFRR_Day,ERS,10.978,58.2,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2025-en-balansno-trziste-tabele.xlsx
+2025,aFRR_Day,EP HZHB,0.0,0.0,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2025-en-balansno-trziste-tabele.xlsx
+2025,mFRR_Up,EP BiH,46.943,33.9,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2025-en-balansno-trziste-tabele.xlsx
+2025,mFRR_Up,ERS,17.022,12.3,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2025-en-balansno-trziste-tabele.xlsx
+2025,mFRR_Up,EP HZHB,74.508,53.8,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2025-en-balansno-trziste-tabele.xlsx
+2025,mFRR_Up,EFT Stanari,0.0,0.0,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2025-en-balansno-trziste-tabele.xlsx
+2025,mFRR_Down,EP BiH,1.006,1.9,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2025-en-balansno-trziste-tabele.xlsx
+2025,mFRR_Down,ERS,29.604,57.0,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2025-en-balansno-trziste-tabele.xlsx
+2025,mFRR_Down,EP HZHB,1.729,3.3,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2025-en-balansno-trziste-tabele.xlsx
+2025,mFRR_Down,EFT Stanari,19.558,37.7,https://www.nosbih.ba/files/balansno/izvjestaji/godine/2025-en-balansno-trziste-tabele.xlsx
