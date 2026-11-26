@@ -155,10 +155,11 @@ jobs:
         run: python -m unittest discover -s tests -v
 
       # Fails the run if the token is missing, any direction fails, or nothing was recorded.
-      - name: Fetch previous-day ENTSO-E data (${{ matrix.leg }})
+      - name: Fetch previous-day ENTSO-E data plus today so far (${{ matrix.leg }})
         env:
           ENTSOE_WORKERS: ${{ github.event.inputs.workers || '2' }}
           ENTSOE_DATASETS: ${{ matrix.datasets }}
+          ENTSOE_TODAY: '1'
         run: |
           python3 - <<'PY'
           import sys
