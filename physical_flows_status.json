@@ -1,58 +1,16 @@
 {
   "state": "OK",
-  "checked_at": "2026-11-26T20:54:03+00:00",
+  "checked_at": "2026-11-27T12:22:28+00:00",
   "timezone": "Europe/Sarajevo",
-  "requested_first_day": "2026-10-27",
-  "requested_last_day": "2026-11-26",
+  "requested_first_day": "2026-10-28",
+  "requested_last_day": "2026-11-27",
   "requested_delivery_days": 31,
   "unit": "MW",
-  "row_count": 4446,
+  "row_count": 4394,
   "historical_incomplete_pairs": [],
   "request_failures": [],
   "coverage": [
     {
-      "day": "2026-10-27",
-      "direction": "BA>HR",
-      "rows": 24,
-      "complete": true,
-      "latest_end_utc": "2026-10-27T23:00:00Z"
-    },
-    {
-      "day": "2026-10-27",
-      "direction": "HR>BA",
-      "rows": 24,
-      "complete": true,
-      "latest_end_utc": "2026-10-27T23:00:00Z"
-    },
-    {
-      "day": "2026-10-27",
-      "direction": "BA>ME",
-      "rows": 24,
-      "complete": true,
-      "latest_end_utc": "2026-10-27T23:00:00Z"
-    },
-    {
-      "day": "2026-10-27",
-      "direction": "ME>BA",
-      "rows": 24,
-      "complete": true,
-      "latest_end_utc": "2026-10-27T23:00:00Z"
-    },
-    {
-      "day": "2026-10-27",
-      "direction": "BA>RS",
-      "rows": 24,
-      "complete": true,
-      "latest_end_utc": "2026-10-27T23:00:00Z"
-    },
-    {
-      "day": "2026-10-27",
-      "direction": "RS>BA",
-      "rows": 24,
-      "complete": true,
-      "latest_end_utc": "2026-10-27T23:00:00Z"
-    },
-    {
       "day": "2026-10-28",
       "direction": "BA>HR",
       "rows": 24,
@@ -1273,44 +1231,86 @@
     {
       "day": "2026-11-26",
       "direction": "BA>HR",
-      "rows": 21,
-      "complete": false,
-      "latest_end_utc": "2026-11-26T20:00:00Z"
+      "rows": 24,
+      "complete": true,
+      "latest_end_utc": "2026-11-26T23:00:00Z"
     },
     {
       "day": "2026-11-26",
       "direction": "HR>BA",
-      "rows": 21,
-      "complete": false,
-      "latest_end_utc": "2026-11-26T20:00:00Z"
+      "rows": 24,
+      "complete": true,
+      "latest_end_utc": "2026-11-26T23:00:00Z"
     },
     {
       "day": "2026-11-26",
       "direction": "BA>ME",
-      "rows": 21,
-      "complete": false,
-      "latest_end_utc": "2026-11-26T20:00:00Z"
+      "rows": 24,
+      "complete": true,
+      "latest_end_utc": "2026-11-26T23:00:00Z"
     },
     {
       "day": "2026-11-26",
       "direction": "ME>BA",
-      "rows": 21,
-      "complete": false,
-      "latest_end_utc": "2026-11-26T20:00:00Z"
+      "rows": 24,
+      "complete": true,
+      "latest_end_utc": "2026-11-26T23:00:00Z"
     },
     {
       "day": "2026-11-26",
       "direction": "BA>RS",
-      "rows": 21,
-      "complete": false,
-      "latest_end_utc": "2026-11-26T20:00:00Z"
+      "rows": 24,
+      "complete": true,
+      "latest_end_utc": "2026-11-26T23:00:00Z"
     },
     {
       "day": "2026-11-26",
       "direction": "RS>BA",
-      "rows": 21,
+      "rows": 24,
+      "complete": true,
+      "latest_end_utc": "2026-11-26T23:00:00Z"
+    },
+    {
+      "day": "2026-11-27",
+      "direction": "BA>HR",
+      "rows": 13,
       "complete": false,
-      "latest_end_utc": "2026-11-26T20:00:00Z"
+      "latest_end_utc": "2026-11-27T12:00:00Z"
+    },
+    {
+      "day": "2026-11-27",
+      "direction": "HR>BA",
+      "rows": 13,
+      "complete": false,
+      "latest_end_utc": "2026-11-27T12:00:00Z"
+    },
+    {
+      "day": "2026-11-27",
+      "direction": "BA>ME",
+      "rows": 12,
+      "complete": false,
+      "latest_end_utc": "2026-11-27T11:00:00Z"
+    },
+    {
+      "day": "2026-11-27",
+      "direction": "ME>BA",
+      "rows": 12,
+      "complete": false,
+      "latest_end_utc": "2026-11-27T11:00:00Z"
+    },
+    {
+      "day": "2026-11-27",
+      "direction": "BA>RS",
+      "rows": 12,
+      "complete": false,
+      "latest_end_utc": "2026-11-27T11:00:00Z"
+    },
+    {
+      "day": "2026-11-27",
+      "direction": "RS>BA",
+      "rows": 12,
+      "complete": false,
+      "latest_end_utc": "2026-11-27T11:00:00Z"
     }
   ],
   "note": "Raw directional measurements. Today contains published completed intervals only. Net export = BA outbound minus inbound; match exact UTC interval and resolution. Missing pairs are gaps, never zero."
