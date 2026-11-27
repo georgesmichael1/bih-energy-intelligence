@@ -1,12 +1,12 @@
 {
   "state": "OK",
-  "checked_at": "2026-11-27T19:13:04+00:00",
+  "checked_at": "2026-11-27T20:26:53+00:00",
   "timezone": "Europe/Sarajevo",
   "requested_first_day": "2026-10-28",
   "requested_last_day": "2026-11-27",
   "requested_delivery_days": 31,
   "unit": "MW",
-  "row_count": 4436,
+  "row_count": 4442,
   "historical_incomplete_pairs": [],
   "request_failures": [],
   "coverage": [
@@ -1273,44 +1273,44 @@
     {
       "day": "2026-11-27",
       "direction": "BA>HR",
-      "rows": 20,
+      "rows": 21,
       "complete": false,
-      "latest_end_utc": "2026-11-27T19:00:00Z"
+      "latest_end_utc": "2026-11-27T20:00:00Z"
     },
     {
       "day": "2026-11-27",
       "direction": "HR>BA",
+      "rows": 21,
+      "complete": false,
+      "latest_end_utc": "2026-11-27T20:00:00Z"
+    },
+    {
+      "day": "2026-11-27",
+      "direction": "BA>ME",
       "rows": 20,
       "complete": false,
       "latest_end_utc": "2026-11-27T19:00:00Z"
     },
     {
       "day": "2026-11-27",
-      "direction": "BA>ME",
-      "rows": 19,
-      "complete": false,
-      "latest_end_utc": "2026-11-27T18:00:00Z"
-    },
-    {
-      "day": "2026-11-27",
       "direction": "ME>BA",
-      "rows": 19,
+      "rows": 20,
       "complete": false,
-      "latest_end_utc": "2026-11-27T18:00:00Z"
+      "latest_end_utc": "2026-11-27T19:00:00Z"
     },
     {
       "day": "2026-11-27",
       "direction": "BA>RS",
-      "rows": 19,
+      "rows": 20,
       "complete": false,
-      "latest_end_utc": "2026-11-27T18:00:00Z"
+      "latest_end_utc": "2026-11-27T19:00:00Z"
     },
     {
       "day": "2026-11-27",
       "direction": "RS>BA",
-      "rows": 19,
+      "rows": 20,
       "complete": false,
-      "latest_end_utc": "2026-11-27T18:00:00Z"
+      "latest_end_utc": "2026-11-27T19:00:00Z"
     }
   ],
   "note": "Raw directional measurements. Today contains published completed intervals only. Net export = BA outbound minus inbound; match exact UTC interval and resolution. Missing pairs are gaps, never zero."
